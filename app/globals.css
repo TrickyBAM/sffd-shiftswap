@@ -1,0 +1,18 @@
+/*
+ * Global styles for the SFFD ShiftSwap application.
+ *
+ * We import the Tailwind base, components and utilities layers.  The
+ * remainder of styling is provided through Tailwind classes and
+ * component-level styles.  Additional global styles (e.g. custom
+ * fonts or CSS variables) can be defined here.
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Example CSS variable for custom fonts */
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+}
