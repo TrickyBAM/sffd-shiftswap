@@ -145,8 +145,8 @@ export default function OnboardingPage() {
             />
           </svg>
         </div>
-        <h1 className="text-2xl font-bold text-white">Complete Your Profile</h1>
-        <p className="text-gray-400 mt-1 text-sm">
+        <h1 className="text-2xl font-bold text-[#F0F0F5] font-display">Complete Your Profile</h1>
+        <p className="text-[#8888A0] mt-1 text-sm">
           Tell us about your assignment at SFFD
         </p>
       </div>
@@ -161,7 +161,7 @@ export default function OnboardingPage() {
 
         {/* Full Name */}
         <div>
-          <label htmlFor="full_name" className="block text-sm font-medium text-gray-300 mb-1.5">
+          <label htmlFor="full_name" className="block text-sm font-medium text-[#8888A0] mb-1.5">
             Full Name
           </label>
           <input
@@ -178,7 +178,7 @@ export default function OnboardingPage() {
 
         {/* Rank */}
         <div>
-          <label htmlFor="rank" className="block text-sm font-medium text-gray-300 mb-1.5">
+          <label htmlFor="rank" className="block text-sm font-medium text-[#8888A0] mb-1.5">
             Rank
           </label>
           <select id="rank" {...register('rank')} className={selectClasses} defaultValue="">
@@ -198,7 +198,7 @@ export default function OnboardingPage() {
 
         {/* Position Type */}
         <div>
-          <label htmlFor="position_type" className="block text-sm font-medium text-gray-300 mb-1.5">
+          <label htmlFor="position_type" className="block text-sm font-medium text-[#8888A0] mb-1.5">
             Position Type
           </label>
           <select id="position_type" {...register('position_type')} className={selectClasses} defaultValue="">
@@ -218,7 +218,7 @@ export default function OnboardingPage() {
 
         {/* Division */}
         <div>
-          <label htmlFor="division" className="block text-sm font-medium text-gray-300 mb-1.5">
+          <label htmlFor="division" className="block text-sm font-medium text-[#8888A0] mb-1.5">
             Division
           </label>
           <select id="division" {...register('division', { valueAsNumber: true })} className={selectClasses}>
@@ -238,7 +238,7 @@ export default function OnboardingPage() {
 
         {/* Battalion */}
         <div>
-          <label htmlFor="battalion" className="block text-sm font-medium text-gray-300 mb-1.5">
+          <label htmlFor="battalion" className="block text-sm font-medium text-[#8888A0] mb-1.5">
             Battalion
           </label>
           <select
@@ -263,7 +263,7 @@ export default function OnboardingPage() {
 
         {/* Station */}
         <div>
-          <label htmlFor="station" className="block text-sm font-medium text-gray-300 mb-1.5">
+          <label htmlFor="station" className="block text-sm font-medium text-[#8888A0] mb-1.5">
             Station
           </label>
           <select
@@ -288,7 +288,7 @@ export default function OnboardingPage() {
 
         {/* Tour */}
         <div>
-          <label htmlFor="tour" className="block text-sm font-medium text-gray-300 mb-1.5">
+          <label htmlFor="tour" className="block text-sm font-medium text-[#8888A0] mb-1.5">
             Tour
           </label>
           <select id="tour" {...register('tour', { valueAsNumber: true })} className={selectClasses}>
@@ -308,8 +308,8 @@ export default function OnboardingPage() {
 
         {/* Phone */}
         <div>
-          <label htmlFor="phone" className="block text-sm font-medium text-gray-300 mb-1.5">
-            Phone <span className="text-gray-500">(optional)</span>
+          <label htmlFor="phone" className="block text-sm font-medium text-[#8888A0] mb-1.5">
+            Phone <span className="text-[#555570]">(optional)</span>
           </label>
           <input
             id="phone"
@@ -327,7 +327,7 @@ export default function OnboardingPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full py-2.5 px-4 bg-[#D32F2F] hover:bg-[#B71C1C] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition focus:outline-none focus:ring-2 focus:ring-[#D32F2F] focus:ring-offset-2 focus:ring-offset-[#1a1a1a]"
+          className="w-full py-2.5 px-4 bg-[#D32F2F] hover:bg-[#B71C1C] disabled:opacity-50 disabled:cursor-not-allowed text-[#F0F0F5] font-semibold rounded-lg transition focus:outline-none focus:ring-2 focus:ring-[#D32F2F]/50 focus:ring-offset-2 focus:ring-offset-[#12121a]"
         >
           {isSubmitting ? (
             <span className="inline-flex items-center gap-2">
