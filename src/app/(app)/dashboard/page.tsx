@@ -21,6 +21,7 @@ import {
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import Link from 'next/link'
 
+type CancelTarget = { shiftId: string; posterName: string }
 type DayType = 'work' | 'open' | 'covered' | 'swapmatch' | null
 
 interface DayInfo {
@@ -38,6 +39,46 @@ export default function DashboardPage() {
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [shiftsLoading, setShiftsLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState<DayInfo | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null)
+  const [cancelling, setCancelling] = useState(false)
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 4000)
+  }
+
+  const handleCancelShift = async () => {
+    if (!cancelTarget || !profile) return
+    setCancelling(true)
+    try {
+      const { error } = await supabase
+        .from('shifts')
+        .update({ status: 'cancelled' })
+        .eq('id', cancelTarget.shiftId)
+        .eq('poster_id', profile.id)
+
+      if (error) throw error
+
+      await supabase
+        .from('profiles')
+        .update({
+          trade_requested: Math.max(0, profile.trade_requested - 1),
+          trade_outstanding: Math.max(0, profile.trade_outstanding - 1),
+        })
+        .eq('id', profile.id)
+
+      setCancelTarget(null)
+      setSelectedDay(null)
+      showToast('Shift cancelled successfully.', 'success')
+      fetchShifts()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to cancel shift'
+      showToast(message, 'error')
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   const supabase = useMemo(() => createClient(), [])
 
@@ -174,6 +215,19 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-[#111111] px-4 py-6 sm:px-6 lg:px-8 max-w-5xl mx-auto">
+      {/* Toast */}
+      {toast && (
+        <div
+          className={`fixed top-4 left-1/2 -translate-x-1/2 z-[60] px-4 py-3 rounded-lg text-sm font-medium shadow-lg ${
+            toast.type === 'success'
+              ? 'bg-green-900/90 text-green-200 border border-green-700'
+              : 'bg-red-900/90 text-red-200 border border-red-700'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
+
       {/* Trade Score Card */}
       <div className="mb-6">
         <h2 className="text-sm font-medium text-[#999] uppercase tracking-wider mb-3">
@@ -319,6 +373,34 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Cancel Confirmation Dialog */}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4">
+          <div className="bg-[#1a1a1a] rounded-xl border border-[#333] max-w-sm w-full p-6">
+            <h2 className="text-lg font-bold text-[#f5f5f5] mb-2">Cancel Shift</h2>
+            <p className="text-sm text-[#999] mb-4">
+              Are you sure you want to cancel this shift? This cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCancelTarget(null)}
+                disabled={cancelling}
+                className="flex-1 py-2.5 rounded-xl bg-[#252525] border border-[#444] text-[#ccc] text-sm font-medium hover:bg-[#333] transition-colors"
+              >
+                Keep Shift
+              </button>
+              <button
+                onClick={handleCancelShift}
+                disabled={cancelling}
+                className="flex-1 py-2.5 rounded-xl bg-[#D32F2F] text-white text-sm font-semibold hover:bg-[#B71C1C] disabled:opacity-50 transition-colors"
+              >
+                {cancelling ? 'Cancelling...' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Day Detail Modal */}
       {selectedDay && (
         <div
@@ -448,6 +530,14 @@ export default function DashboardPage() {
                           <p className="mt-1.5 text-[#888] italic">{shift.notes}</p>
                         )}
                       </div>
+                      {shift.poster_id === profile?.id && shift.status === 'open' && (
+                        <button
+                          onClick={() => setCancelTarget({ shiftId: shift.id, posterName: shift.poster_name })}
+                          className="mt-2 w-full py-1.5 text-xs font-medium text-red-400 border border-red-400/30 rounded-lg hover:bg-red-400/10 transition"
+                        >
+                          Cancel Shift
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

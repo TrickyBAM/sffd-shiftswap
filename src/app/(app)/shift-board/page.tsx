@@ -33,6 +33,10 @@ export default function ShiftBoardPage() {
   const [confirmShift, setConfirmShift] = useState<Shift | null>(null)
   const [accepting, setAccepting] = useState(false)
 
+  // Cancel dialog
+  const [cancelShift, setCancelShift] = useState<Shift | null>(null)
+  const [cancelling, setCancelling] = useState(false)
+
   // Toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
@@ -179,6 +183,40 @@ export default function ShiftBoardPage() {
       showToast(message, 'error')
     } finally {
       setAccepting(false)
+    }
+  }
+
+  const handleCancel = async (shift: Shift) => {
+    if (!profile) return
+    setCancelling(true)
+
+    try {
+      const supabase = createClient()
+
+      const { error: updateError } = await supabase
+        .from('shifts')
+        .update({ status: 'cancelled' })
+        .eq('id', shift.id)
+        .eq('poster_id', profile.id)
+
+      if (updateError) throw updateError
+
+      await supabase
+        .from('profiles')
+        .update({
+          trade_requested: Math.max(0, profile.trade_requested - 1),
+          trade_outstanding: Math.max(0, profile.trade_outstanding - 1),
+        })
+        .eq('id', profile.id)
+
+      setCancelShift(null)
+      showToast('Shift cancelled successfully.', 'success')
+      fetchShifts()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to cancel shift'
+      showToast(message, 'error')
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -353,14 +391,22 @@ export default function ShiftBoardPage() {
                     </div>
                   )}
 
-                  {/* Accept button */}
-                  <button
-                    onClick={() => setConfirmShift(shift)}
-                    disabled={isOwnShift}
-                    className="w-full py-2 rounded-lg bg-[#D32F2F] text-white text-sm font-semibold hover:bg-[#B71C1C] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {isOwnShift ? 'Your Shift' : 'Accept'}
-                  </button>
+                  {/* Action button */}
+                  {isOwnShift ? (
+                    <button
+                      onClick={() => setCancelShift(shift)}
+                      className="w-full py-2 rounded-lg border border-red-400/30 text-red-400 text-sm font-semibold hover:bg-red-400/10 transition-colors"
+                    >
+                      Cancel Shift
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmShift(shift)}
+                      className="w-full py-2 rounded-lg bg-[#D32F2F] text-white text-sm font-semibold hover:bg-[#B71C1C] transition-colors"
+                    >
+                      Accept
+                    </button>
+                  )}
                 </div>
               </div>
             )
@@ -385,6 +431,38 @@ export default function ShiftBoardPage() {
               'Load More'
             )}
           </button>
+        </div>
+      )}
+
+      {/* Cancel Confirmation Dialog */}
+      {cancelShift && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="bg-[#1a1a1a] rounded-xl border border-[#333] max-w-sm w-full p-6">
+            <h2 className="text-lg font-bold text-[#f5f5f5] mb-2">Cancel Shift</h2>
+            <p className="text-sm text-[#999] mb-1">
+              Are you sure you want to cancel this shift?
+            </p>
+            <p className="text-sm text-[#999] mb-4">
+              <span className="text-[#ccc]">{formatDate(cancelShift.date)}</span>{' '}
+              &middot; {cancelShift.shift_type} &middot; {getStationLabel(cancelShift.station)}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setCancelShift(null)}
+                disabled={cancelling}
+                className="flex-1 py-2.5 rounded-xl bg-[#252525] border border-[#444] text-[#ccc] text-sm font-medium hover:bg-[#333] transition-colors"
+              >
+                Keep Shift
+              </button>
+              <button
+                onClick={() => handleCancel(cancelShift)}
+                disabled={cancelling}
+                className="flex-1 py-2.5 rounded-xl bg-[#D32F2F] text-white text-sm font-semibold hover:bg-[#B71C1C] disabled:opacity-50 transition-colors"
+              >
+                {cancelling ? 'Cancelling...' : 'Yes, Cancel'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
