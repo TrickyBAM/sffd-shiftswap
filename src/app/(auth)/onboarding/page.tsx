@@ -122,12 +122,12 @@ export default function OnboardingPage() {
   }
 
   const selectClasses =
-    'w-full px-4 py-2.5 bg-[#222222] border border-[#333333] rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#D32F2F] focus:border-transparent transition appearance-none'
+    'w-full px-4 py-2.5 bg-[#1a1a26] border border-white/[0.06] rounded-xl text-[#F0F0F5] focus:outline-none focus:ring-2 focus:ring-[#D32F2F]/50 focus:border-transparent transition appearance-none'
   const inputClasses =
-    'w-full px-4 py-2.5 bg-[#222222] border border-[#333333] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#D32F2F] focus:border-transparent transition'
+    'w-full px-4 py-2.5 bg-[#1a1a26] border border-white/[0.06] rounded-xl text-[#F0F0F5] placeholder-[#555570] focus:outline-none focus:ring-2 focus:ring-[#D32F2F]/50 focus:border-transparent transition'
 
   return (
-    <div className="bg-[#1a1a1a] rounded-2xl shadow-xl border border-[#2a2a2a] p-8">
+    <div className="bg-[#12121a] rounded-2xl shadow-xl border border-white/[0.06] p-8">
       {/* Header */}
       <div className="text-center mb-8">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-[#D32F2F]/10 mb-4">

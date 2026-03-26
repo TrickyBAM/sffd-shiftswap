@@ -102,16 +102,16 @@ export default function PostShiftPage() {
   }
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-6">
-      <h1 className="text-2xl font-bold mb-6">Post a Shift for Trade</h1>
+    <div className="max-w-lg mx-auto px-4 py-6 animate-fade-in-up">
+      <h1 className="font-display text-3xl mb-6 text-[#F0F0F5]">POST A SHIFT</h1>
 
       {/* Toast */}
       {toast && (
         <div
           className={`mb-4 px-4 py-3 rounded-lg text-sm font-medium ${
             toast.type === 'success'
-              ? 'bg-green-900/60 text-green-200 border border-green-700'
-              : 'bg-red-900/60 text-red-200 border border-red-700'
+              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              : 'bg-red-500/10 text-red-400 border border-red-500/20'
           }`}
         >
           {toast.message}
@@ -121,13 +121,13 @@ export default function PostShiftPage() {
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
         {/* Date */}
         <div>
-          <label className="block text-sm font-medium text-[#ccc] mb-1">
+          <label className="block text-sm font-medium text-[#8888A0] mb-1">
             Shift Date
           </label>
           <input
             type="date"
             {...register('date', { required: 'Date is required' })}
-            className="w-full px-3 py-2.5 rounded-xl bg-[#1a1a1a] border border-[#333] text-[#f5f5f5] focus:outline-none focus:border-[#D32F2F] transition-colors"
+            className="w-full px-3 py-2.5 rounded-xl bg-[#12121a] border border-white/[0.06] text-[#F0F0F5] focus:outline-none focus:border-[#D32F2F] transition-colors"
           />
           {errors.date && (
             <p className="mt-1 text-sm text-red-400">{errors.date.message}</p>
@@ -136,12 +136,12 @@ export default function PostShiftPage() {
 
         {/* Shift Type */}
         <div>
-          <label className="block text-sm font-medium text-[#ccc] mb-1">
+          <label className="block text-sm font-medium text-[#8888A0] mb-1">
             Shift Type
           </label>
           <select
             {...register('shift_type')}
-            className="w-full px-3 py-2.5 rounded-xl bg-[#1a1a1a] border border-[#333] text-[#f5f5f5] focus:outline-none focus:border-[#D32F2F] transition-colors"
+            className="w-full px-3 py-2.5 rounded-xl bg-[#12121a] border border-white/[0.06] text-[#F0F0F5] focus:outline-none focus:border-[#D32F2F] transition-colors"
           >
             {SHIFT_TYPES.map((type) => (
               <option key={type} value={type}>
@@ -153,23 +153,23 @@ export default function PostShiftPage() {
 
         {/* Notes */}
         <div>
-          <label className="block text-sm font-medium text-[#ccc] mb-1">
-            Notes <span className="text-[#666]">(optional)</span>
+          <label className="block text-sm font-medium text-[#8888A0] mb-1">
+            Notes <span className="text-[#555570]">(optional)</span>
           </label>
           <textarea
             {...register('notes')}
             rows={3}
             placeholder="Any additional details..."
-            className="w-full px-3 py-2.5 rounded-xl bg-[#1a1a1a] border border-[#333] text-[#f5f5f5] placeholder-[#555] focus:outline-none focus:border-[#D32F2F] transition-colors resize-none"
+            className="w-full px-3 py-2.5 rounded-xl bg-[#12121a] border border-white/[0.06] text-[#F0F0F5] placeholder-[#555570] focus:outline-none focus:border-[#D32F2F] transition-colors resize-none"
           />
         </div>
 
         {/* SwapMatch Toggle */}
-        <div className="bg-[#1a1a1a] rounded-xl p-4 border border-[#333]">
+        <div className="bg-[#12121a] rounded-xl p-4 border border-white/[0.06]">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-medium text-[#f5f5f5]">SwapMatch</p>
-              <p className="text-xs text-[#888] mt-0.5">
+              <p className="font-medium text-[#F0F0F5]">SwapMatch</p>
+              <p className="text-xs text-[#555570] mt-0.5">
                 Offer specific return dates for a direct trade
               </p>
             </div>
@@ -179,14 +179,14 @@ export default function PostShiftPage() {
                 {...register('swap_match')}
                 className="sr-only peer"
               />
-              <div className="w-11 h-6 bg-[#333] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#9C27B0]" />
+              <div className="w-11 h-6 bg-[#1a1a26] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#9C6AFF]" />
             </label>
           </div>
 
           {/* Return Dates */}
           {swapMatchEnabled && (
             <div className="mt-4 space-y-3">
-              <label className="block text-sm font-medium text-[#ccc]">
+              <label className="block text-sm font-medium text-[#8888A0]">
                 Return Dates You Would Accept
               </label>
               {fields.map((field, index) => (
@@ -196,12 +196,12 @@ export default function PostShiftPage() {
                     {...register(`return_dates.${index}.date` as const, {
                       required: 'Date is required',
                     })}
-                    className="flex-1 px-3 py-2 rounded-lg bg-[#252525] border border-[#444] text-[#f5f5f5] focus:outline-none focus:border-[#9C27B0] transition-colors text-sm"
+                    className="flex-1 px-3 py-2 rounded-xl bg-[#1a1a26] border border-white/[0.06] text-[#F0F0F5] focus:outline-none focus:border-[#9C6AFF] transition-colors text-sm"
                   />
                   <button
                     type="button"
                     onClick={() => remove(index)}
-                    className="p-2 text-[#888] hover:text-red-400 transition-colors"
+                    className="p-2 text-[#555570] hover:text-red-400 transition-colors"
                     aria-label="Remove date"
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -211,7 +211,7 @@ export default function PostShiftPage() {
               <button
                 type="button"
                 onClick={() => append({ date: '' })}
-                className="w-full py-2 rounded-lg border border-dashed border-[#555] text-sm text-[#999] hover:border-[#9C27B0] hover:text-[#9C27B0] transition-colors"
+                className="w-full py-2 rounded-lg border border-dashed border-[#555570] text-sm text-[#8888A0] hover:border-[#9C6AFF] hover:text-[#9C6AFF] transition-colors"
               >
                 + Add Return Date
               </button>
@@ -224,12 +224,12 @@ export default function PostShiftPage() {
 
         {/* Accept Limit */}
         <div>
-          <label className="block text-sm font-medium text-[#ccc] mb-1">
+          <label className="block text-sm font-medium text-[#8888A0] mb-1">
             Who Can Accept
           </label>
           <select
             {...register('accept_limit_type')}
-            className="w-full px-3 py-2.5 rounded-xl bg-[#1a1a1a] border border-[#333] text-[#f5f5f5] focus:outline-none focus:border-[#D32F2F] transition-colors"
+            className="w-full px-3 py-2.5 rounded-xl bg-[#12121a] border border-white/[0.06] text-[#F0F0F5] focus:outline-none focus:border-[#D32F2F] transition-colors"
           >
             <option value="">Anyone in SFFD</option>
             <option value="station">Same Station Only</option>
@@ -242,7 +242,7 @@ export default function PostShiftPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full py-3 rounded-xl bg-[#D32F2F] text-white font-semibold hover:bg-[#B71C1C] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="w-full py-3 rounded-xl bg-[#D32F2F] text-[#F0F0F5] font-semibold hover:bg-[#B71C1C] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? (
             <span className="flex items-center justify-center gap-2">

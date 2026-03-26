@@ -43,7 +43,7 @@ export default async function AppLayout({
   return (
     <ProfileProvider profile={profile as Profile}>
       <Navigation />
-      <main className="min-h-screen pb-16 md:pb-0 md:pl-64">
+      <main className="min-h-screen pb-20 md:pb-0 md:pl-64">
         {children}
       </main>
     </ProfileProvider>

@@ -145,25 +145,25 @@ export default function ProfilePage() {
 
   const tradeStats = [
     { label: 'Requested', value: profile.trade_requested, color: '#D32F2F' },
-    { label: 'Filled', value: profile.trade_filled, color: '#4CAF50' },
-    { label: 'Outstanding', value: profile.trade_outstanding, color: '#FF9800' },
-    { label: 'Earned', value: profile.trade_earned, color: '#2196F3' },
+    { label: 'Filled', value: profile.trade_filled, color: '#34D399' },
+    { label: 'Outstanding', value: profile.trade_outstanding, color: '#FF6B35' },
+    { label: 'Earned', value: profile.trade_earned, color: '#4A9FFF' },
   ]
 
   const inputClasses =
-    'w-full px-4 py-2.5 bg-[#222222] border border-[#333333] rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-[#D32F2F] focus:border-transparent transition'
+    'w-full px-4 py-2.5 bg-[#1a1a26] border border-white/[0.06] rounded-xl text-[#F0F0F5] placeholder-[#555570] focus:outline-none focus:ring-2 focus:ring-[#D32F2F] focus:border-transparent transition'
   const selectClasses =
-    'w-full px-4 py-2.5 bg-[#222222] border border-[#333333] rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-[#D32F2F] focus:border-transparent transition appearance-none'
-  const labelClasses = 'block text-sm font-medium text-gray-300 mb-1.5'
+    'w-full px-4 py-2.5 bg-[#1a1a26] border border-white/[0.06] rounded-xl text-[#F0F0F5] focus:outline-none focus:ring-2 focus:ring-[#D32F2F] focus:border-transparent transition appearance-none'
+  const labelClasses = 'block text-sm font-medium text-[#8888A0] mb-1.5'
 
   return (
-    <div className="min-h-screen bg-[#111111] px-4 py-6 pb-24">
+    <div className="min-h-screen px-4 py-6 pb-24">
       <div className="max-w-lg mx-auto space-y-6">
         {/* Profile Header */}
-        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6">
+        <div className="bg-[#12121a] rounded-2xl border border-white/[0.06] p-6 animate-fade-in-up">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-[#D32F2F]/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-2xl font-bold text-[#D32F2F]">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#D32F2F] to-[#FF6B35] flex items-center justify-center flex-shrink-0">
+              <span className="text-2xl font-bold text-[#F0F0F5]">
                 {profile.full_name
                   .split(' ')
                   .map((n) => n[0])
@@ -173,35 +173,35 @@ export default function ProfilePage() {
               </span>
             </div>
             <div className="min-w-0">
-              <h1 className="text-xl font-bold text-white truncate">{profile.full_name}</h1>
-              <p className="text-gray-400 text-sm">{profile.rank}</p>
-              <p className="text-gray-500 text-sm">{getStationLabel(profile.station)}</p>
+              <h1 className="text-xl font-bold text-[#F0F0F5] truncate">{profile.full_name}</h1>
+              <p className="text-[#8888A0] text-sm">{profile.rank}</p>
+              <p className="text-[#555570] text-sm">{getStationLabel(profile.station)}</p>
             </div>
           </div>
         </div>
 
         {/* Trade Score */}
-        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Trade Score</h2>
+        <div className="bg-[#12121a] rounded-2xl border border-white/[0.06] p-6 animate-fade-in-up delay-1">
+          <h2 className="text-lg font-semibold font-display text-[#F0F0F5] mb-4">Trade Score</h2>
           <div className="grid grid-cols-2 gap-3">
             {tradeStats.map((stat) => (
               <div
                 key={stat.label}
-                className="bg-[#222222] rounded-xl p-4 border border-[#2a2a2a]"
+                className="bg-[#1a1a26] rounded-xl p-4 border border-white/[0.06]"
               >
                 <p className="text-2xl font-bold" style={{ color: stat.color }}>
                   {stat.value}
                 </p>
-                <p className="text-sm text-gray-400 mt-1">{stat.label}</p>
+                <p className="text-sm text-[#8888A0] mt-1">{stat.label}</p>
               </div>
             ))}
           </div>
         </div>
 
         {/* Profile Details / Edit Form */}
-        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6">
+        <div className="bg-[#12121a] rounded-2xl border border-white/[0.06] p-6 animate-fade-in-up delay-2">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white">Profile Details</h2>
+            <h2 className="text-lg font-semibold font-display text-[#F0F0F5]">Profile Details</h2>
             {!isEditing && (
               <button
                 onClick={() => setIsEditing(true)}
@@ -344,14 +344,14 @@ export default function ProfilePage() {
                 <button
                   type="button"
                   onClick={handleCancel}
-                  className="flex-1 py-2.5 px-4 bg-[#222222] border border-[#333333] text-gray-300 font-semibold rounded-lg hover:bg-[#2a2a2a] transition"
+                  className="flex-1 py-2.5 px-4 bg-[#1a1a26] border border-white/[0.06] text-[#8888A0] font-semibold rounded-lg hover:bg-[#222233] transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="flex-1 py-2.5 px-4 bg-[#D32F2F] hover:bg-[#B71C1C] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition"
+                  className="flex-1 py-2.5 px-4 bg-[#D32F2F] hover:bg-[#B71C1C] disabled:opacity-50 disabled:cursor-not-allowed text-[#F0F0F5] font-semibold rounded-lg transition"
                 >
                   {saving ? (
                     <span className="inline-flex items-center justify-center gap-2">
@@ -393,14 +393,14 @@ export default function ProfilePage() {
         </div>
 
         {/* Schedule */}
-        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6">
-          <h2 className="text-lg font-semibold text-white mb-2">Schedule</h2>
-          <p className="text-sm text-gray-400 mb-4">
+        <div className="bg-[#12121a] rounded-2xl border border-white/[0.06] p-6 animate-fade-in-up delay-3">
+          <h2 className="text-lg font-semibold font-display text-[#F0F0F5] mb-2">Schedule</h2>
+          <p className="text-sm text-[#8888A0] mb-4">
             If your schedule has changed, you can recalibrate it by re-entering your work days.
           </p>
           <button
             onClick={() => router.push('/schedule-setup')}
-            className="w-full py-2.5 px-4 bg-[#2196F3] hover:bg-[#1976D2] text-white font-semibold rounded-lg transition"
+            className="w-full py-2.5 px-4 bg-[#4A9FFF] hover:bg-[#3a8fee] text-[#F0F0F5] font-semibold rounded-lg transition"
           >
             Recalibrate Schedule
           </button>
@@ -409,7 +409,7 @@ export default function ProfilePage() {
         {/* Sign Out */}
         <button
           onClick={handleSignOut}
-          className="w-full py-3 px-4 bg-[#1a1a1a] border border-[#2a2a2a] text-red-400 font-semibold rounded-2xl hover:bg-[#222222] transition"
+          className="w-full py-3 px-4 bg-[#12121a] border border-white/[0.06] text-red-400 font-semibold rounded-2xl hover:bg-[#222233] transition animate-fade-in-up delay-3"
         >
           Sign Out
         </button>
@@ -428,9 +428,9 @@ function DetailRow({
   muted?: boolean
 }) {
   return (
-    <div className="flex justify-between items-center py-2 border-b border-[#2a2a2a] last:border-b-0">
-      <span className="text-sm text-gray-400">{label}</span>
-      <span className={`text-sm font-medium ${muted ? 'text-gray-600' : 'text-white'}`}>
+    <div className="flex justify-between items-center py-2 border-b border-white/[0.06] last:border-b-0">
+      <span className="text-sm text-[#8888A0]">{label}</span>
+      <span className={`text-sm font-medium ${muted ? 'text-[#555570]' : 'text-[#F0F0F5]'}`}>
         {value}
       </span>
     </div>

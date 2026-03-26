@@ -15,9 +15,10 @@ import { createBrowserClient } from '@supabase/ssr'
 import { useProfile } from '@/contexts/ProfileContext'
 
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: Home },
-  { href: '/post-shift', label: 'Post Shift', icon: PlusCircle },
-  { href: '/shift-board', label: 'Shift Board', icon: ClipboardList },
+  { href: '/dashboard', label: 'Calendar', icon: Home },
+  { href: '/shift-board', label: 'Board', icon: ClipboardList },
+  { href: '/post-shift', label: 'Post', icon: PlusCircle, isCenter: true },
+  { href: '/notifications', label: 'Alerts', icon: Bell },
   { href: '/profile', label: 'Profile', icon: User },
 ]
 
@@ -32,7 +33,6 @@ export default function Navigation() {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
 
-    // Fetch initial unread count
     async function fetchUnreadCount() {
       const { count } = await supabase
         .from('notifications')
@@ -45,7 +45,6 @@ export default function Navigation() {
 
     fetchUnreadCount()
 
-    // Subscribe to real-time notifications
     const channel = supabase
       .channel('notifications')
       .on(
@@ -83,35 +82,16 @@ export default function Navigation() {
     return pathname === href || pathname.startsWith(href + '/')
   }
 
-  const NotificationBell = (
-    <Link
-      href="/notifications"
-      className="relative flex flex-col items-center justify-center"
-    >
-      <Bell
-        size={24}
-        className={
-          isActive('/notifications')
-            ? 'text-[#D32F2F]'
-            : 'text-gray-400'
-        }
-      />
-      {unreadCount > 0 && (
-        <span className="absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#D32F2F] px-1 text-[10px] font-bold text-white">
-          {unreadCount > 99 ? '99+' : unreadCount}
-        </span>
-      )}
-    </Link>
-  )
-
   return (
     <>
       {/* Desktop Sidebar */}
-      <aside className="fixed left-0 top-0 hidden h-full w-64 border-r border-[#333] bg-[#1a1a1a] md:flex md:flex-col">
+      <aside className="fixed left-0 top-0 hidden h-full w-64 border-r border-white/[0.06] bg-[#12121a] md:flex md:flex-col">
         {/* Logo */}
-        <div className="flex items-center gap-2 border-b border-[#333] px-5 py-5">
+        <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-5">
           <Flame size={28} className="text-[#D32F2F]" />
-          <span className="text-lg font-bold text-white">SFFD ShiftSwap</span>
+          <span className="font-display text-2xl tracking-wide text-[#F0F0F5]">
+            SHIFT<span className="text-[#D32F2F]">SWAP</span>
+          </span>
         </div>
 
         {/* Nav Items */}
@@ -123,60 +103,74 @@ export default function Navigation() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
                   active
                     ? 'bg-[#D32F2F]/10 text-[#D32F2F]'
-                    : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                    : 'text-[#8888A0] hover:bg-white/[0.04] hover:text-[#F0F0F5]'
                 }`}
               >
-                <Icon size={20} />
+                <div className="relative">
+                  <Icon size={20} />
+                  {item.href === '/notifications' && unreadCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#D32F2F] px-0.5 text-[10px] font-bold text-white">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+                </div>
                 {item.label}
               </Link>
             )
           })}
         </nav>
-
-        {/* Notification bell at bottom of sidebar */}
-        <div className="border-t border-[#333] px-3 py-4">
-          <Link
-            href="/notifications"
-            className={`flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors ${
-              isActive('/notifications')
-                ? 'bg-[#D32F2F]/10 text-[#D32F2F]'
-                : 'text-gray-400 hover:bg-white/5 hover:text-white'
-            }`}
-          >
-            <div className="relative">
-              <Bell size={20} />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#D32F2F] px-0.5 text-[10px] font-bold text-white">
-                  {unreadCount > 99 ? '99+' : unreadCount}
-                </span>
-              )}
-            </div>
-            Notifications
-          </Link>
-        </div>
       </aside>
 
-      {/* Mobile Bottom Tab Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-center justify-around border-t border-[#333] bg-[#1a1a1a] md:hidden">
+      {/* Mobile Bottom Tab Bar - Glassmorphic */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-end justify-around glass-nav border-t border-white/[0.06] md:hidden pb-1">
         {navItems.map((item) => {
           const Icon = item.icon
           const active = isActive(item.href)
+
+          if (item.isCenter) {
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className="relative -mt-4 flex flex-col items-center"
+              >
+                <div
+                  className="flex h-[52px] w-[52px] items-center justify-center rounded-2xl text-white shadow-lg"
+                  style={{
+                    background: 'linear-gradient(135deg, #D32F2F 0%, #B71C1C 100%)',
+                    boxShadow: '0 4px 20px rgba(211, 47, 47, 0.4)',
+                  }}
+                >
+                  <Icon size={24} />
+                </div>
+                <span className="text-[10px] mt-1 text-[#8888A0]">{item.label}</span>
+              </Link>
+            )
+          }
+
           return (
             <Link
               key={item.href}
               href={item.href}
-              className="flex flex-col items-center justify-center gap-0.5"
+              className="flex flex-col items-center justify-center gap-0.5 pt-1.5"
             >
-              <Icon
-                size={24}
-                className={active ? 'text-[#D32F2F]' : 'text-gray-400'}
-              />
+              <div className="relative">
+                <Icon
+                  size={22}
+                  className={active ? 'text-[#D32F2F]' : 'text-[#555570]'}
+                />
+                {item.href === '/notifications' && unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#D32F2F] px-0.5 text-[10px] font-bold text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </div>
               <span
                 className={`text-[10px] ${
-                  active ? 'text-[#D32F2F]' : 'text-gray-400'
+                  active ? 'text-[#D32F2F] font-medium' : 'text-[#555570]'
                 }`}
               >
                 {item.label}
@@ -184,7 +178,6 @@ export default function Navigation() {
             </Link>
           )
         })}
-        {NotificationBell}
       </nav>
     </>
   )

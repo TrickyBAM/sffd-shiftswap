@@ -61,7 +61,7 @@ function CalendarGrid({
         {dayHeaders.map((d) => (
           <div
             key={d}
-            className="text-center text-xs text-[#666] uppercase font-medium py-1"
+            className="text-center text-xs text-[#555570] uppercase font-medium py-1"
           >
             {d}
           </div>
@@ -88,11 +88,11 @@ function CalendarGrid({
                 aspect-square flex items-center justify-center text-sm rounded-full
                 transition-all duration-150 relative
                 ${!inMonth ? 'opacity-30 cursor-default' : ''}
-                ${canSelect && !isSelected && !isProjected ? 'hover:bg-white/10 cursor-pointer' : ''}
-                ${isSelected ? 'bg-[#2196F3] text-white font-semibold' : ''}
-                ${isProjected ? 'bg-[#2196F3]/20 text-[#2196F3] border border-[#2196F3]/40 font-medium' : ''}
-                ${!isSelected && !isProjected && inMonth ? 'text-white/80' : ''}
-                ${today && !isSelected && !isProjected ? 'ring-1 ring-[#D32F2F] ring-offset-1 ring-offset-[#1a1a1a]' : ''}
+                ${canSelect && !isSelected && !isProjected ? 'hover:bg-white/[0.04] cursor-pointer' : ''}
+                ${isSelected ? 'bg-[#4A9FFF] text-white font-semibold' : ''}
+                ${isProjected ? 'bg-[#4A9FFF]/15 text-[#4A9FFF] border border-[#4A9FFF]/30 font-medium' : ''}
+                ${!isSelected && !isProjected && inMonth ? 'text-[#F0F0F5]/80' : ''}
+                ${today && !isSelected && !isProjected ? 'ring-1 ring-[#D32F2F] ring-offset-1 ring-offset-[#12121a]' : ''}
                 ${!canSelect && inMonth ? 'cursor-default' : ''}
               `}
             >
@@ -235,29 +235,30 @@ export default function ScheduleSetupPage() {
   // ---------------------------------------------------------------------------
   if (step === 1) {
     return (
-      <div className="min-h-screen bg-[#111111] text-white">
+      <div className="min-h-screen text-white">
         <div className="max-w-lg mx-auto px-4 py-6">
           {/* Header */}
           <div className="mb-6">
-            <h1 className="text-2xl font-bold mb-2">
+            <p className="text-xs font-medium text-[#555570] uppercase tracking-widest mb-2">Step 1 of 3</p>
+            <h1 className="text-3xl font-bold font-display mb-2">
               Let&apos;s set up your schedule
             </h1>
-            <p className="text-sm text-[#999]">
+            <p className="text-sm text-[#8888A0]">
               Tap every day you work this month. Your regular shifts only, not
               overtime or trades.
             </p>
           </div>
 
           {/* Calendar Card */}
-          <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6 mb-6">
+          <div className="bg-[#12121a] rounded-2xl border border-white/[0.06] p-6 mb-6">
             {/* Month navigation */}
             <div className="flex items-center justify-between mb-4">
               <button
                 type="button"
                 onClick={handlePrevMonth}
-                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                className="p-2 rounded-lg hover:bg-white/[0.04] transition-colors"
               >
-                <ChevronLeft className="w-5 h-5 text-white/70" />
+                <ChevronLeft className="w-5 h-5 text-[#8888A0]" />
               </button>
               <h2 className="text-lg font-semibold">
                 {format(viewMonth, 'MMMM yyyy')}
@@ -265,9 +266,9 @@ export default function ScheduleSetupPage() {
               <button
                 type="button"
                 onClick={handleNextMonth}
-                className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                className="p-2 rounded-lg hover:bg-white/[0.04] transition-colors"
               >
-                <ChevronRight className="w-5 h-5 text-white/70" />
+                <ChevronRight className="w-5 h-5 text-[#8888A0]" />
               </button>
             </div>
 
@@ -280,7 +281,7 @@ export default function ScheduleSetupPage() {
           </div>
 
           {/* Selection count */}
-          <p className="text-center text-sm text-[#999] mb-4">
+          <p className="text-center text-sm text-[#8888A0] mb-4">
             {selectedDates.size} day{selectedDates.size !== 1 ? 's' : ''}{' '}
             selected
           </p>
@@ -311,22 +312,23 @@ export default function ScheduleSetupPage() {
   // ---------------------------------------------------------------------------
   if (step === 2) {
     return (
-      <div className="min-h-screen bg-[#111111] text-white">
+      <div className="min-h-screen text-white">
         <div className="max-w-lg mx-auto px-4 py-6">
           {/* Header */}
           <div className="mb-6">
-            <h1 className="text-2xl font-bold mb-2">
+            <p className="text-xs font-medium text-[#555570] uppercase tracking-widest mb-2">Step 2 of 3</p>
+            <h1 className="text-3xl font-bold font-display mb-2">
               We predicted your schedule
             </h1>
-            <p className="text-sm text-[#999]">
+            <p className="text-sm text-[#8888A0]">
               Does this look right? Tap to add or remove days if needed.
             </p>
           </div>
 
           {/* Low confidence warning */}
           {pattern && pattern.confidence < 0.7 && (
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-4">
-              <p className="text-yellow-400 text-sm">
+            <div className="bg-[#FF6B35]/10 border border-[#FF6B35]/20 rounded-xl p-4 mb-4">
+              <p className="text-[#FF6B35] text-sm">
                 We couldn&apos;t detect a consistent pattern. Please
                 double-check the predicted dates.
               </p>
@@ -334,7 +336,7 @@ export default function ScheduleSetupPage() {
           )}
 
           {/* Predicted Calendar Card */}
-          <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6 mb-6">
+          <div className="bg-[#12121a] rounded-2xl border border-white/[0.06] p-6 mb-6">
             <h2 className="text-lg font-semibold text-center mb-4">
               {format(predictedMonth, 'MMMM yyyy')}
             </h2>
@@ -348,7 +350,7 @@ export default function ScheduleSetupPage() {
           </div>
 
           {/* Action count */}
-          <p className="text-center text-sm text-[#999] mb-4">
+          <p className="text-center text-sm text-[#8888A0] mb-4">
             {adjustedDates.size} work day{adjustedDates.size !== 1 ? 's' : ''}{' '}
             for {format(predictedMonth, 'MMMM')}
           </p>
@@ -367,7 +369,7 @@ export default function ScheduleSetupPage() {
               onClick={handleConfirmAndSave}
               disabled={saving}
               className="w-full py-3.5 rounded-xl font-semibold text-white text-base
-                bg-[#4CAF50] hover:bg-[#388E3C] active:scale-[0.98] transition-all
+                bg-[#34D399] hover:bg-[#2ab584] active:scale-[0.98] transition-all
                 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? 'Saving...' : 'Confirm & Save'}
@@ -376,8 +378,8 @@ export default function ScheduleSetupPage() {
             <button
               type="button"
               onClick={() => setStep(1)}
-              className="w-full py-3.5 rounded-xl font-semibold text-white/60 text-base
-                bg-white/5 hover:bg-white/10 active:scale-[0.98] transition-all"
+              className="w-full py-3.5 rounded-xl font-semibold text-[#8888A0] text-base
+                bg-white/[0.04] hover:bg-white/[0.06] active:scale-[0.98] transition-all"
             >
               Back
             </button>
@@ -391,17 +393,17 @@ export default function ScheduleSetupPage() {
   // Screen 3: Success
   // ---------------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-[#111111] text-white flex items-center justify-center">
+    <div className="min-h-screen text-white flex items-center justify-center">
       <div className="max-w-lg mx-auto px-4 py-6 text-center">
         {/* Success icon */}
         <div className="mb-6 flex justify-center">
-          <div className="w-20 h-20 rounded-full bg-[#4CAF50]/20 flex items-center justify-center">
-            <Check className="w-10 h-10 text-[#4CAF50]" strokeWidth={3} />
+          <div className="w-20 h-20 rounded-full bg-[#34D399]/15 flex items-center justify-center">
+            <Check className="w-10 h-10 text-[#34D399]" strokeWidth={3} />
           </div>
         </div>
 
         <h1 className="text-2xl font-bold mb-3">You&apos;re all set!</h1>
-        <p className="text-[#999] text-sm mb-8">
+        <p className="text-[#8888A0] text-sm mb-8">
           Your schedule has been saved and projected for the next 12 months.
         </p>
 

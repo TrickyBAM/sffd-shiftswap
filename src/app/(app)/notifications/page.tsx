@@ -148,21 +148,21 @@ export default function NotificationsPage() {
 
   if (loading || profileLoading) {
     return (
-      <div className="min-h-screen bg-[#111111] px-4 py-6 pb-24">
+      <div className="min-h-screen px-4 py-6 pb-24">
         <div className="max-w-lg mx-auto">
-          <h1 className="text-2xl font-bold text-white mb-6">Notifications</h1>
+          <h1 className="font-display text-3xl text-[#F0F0F5] mb-6">NOTIFICATIONS</h1>
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="bg-[#1a1a1a] rounded-xl border border-[#2a2a2a] p-4 animate-pulse"
+                className="bg-[#12121a] rounded-xl border border-white/[0.06] p-4 animate-pulse"
               >
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-full bg-[#222222]" />
+                  <div className="w-10 h-10 rounded-full bg-[#1a1a26]" />
                   <div className="flex-1 space-y-2">
-                    <div className="h-4 bg-[#222222] rounded w-3/4" />
-                    <div className="h-3 bg-[#222222] rounded w-full" />
-                    <div className="h-3 bg-[#222222] rounded w-1/4" />
+                    <div className="h-4 bg-[#1a1a26] rounded w-3/4" />
+                    <div className="h-3 bg-[#1a1a26] rounded w-full" />
+                    <div className="h-3 bg-[#1a1a26] rounded w-1/4" />
                   </div>
                 </div>
               </div>
@@ -174,14 +174,14 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#111111] px-4 py-6 pb-24">
+    <div className="min-h-screen px-4 py-6 pb-24">
       <div className="max-w-lg mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-white">Notifications</h1>
+            <h1 className="font-display text-3xl text-[#F0F0F5]">NOTIFICATIONS</h1>
             {unreadCount > 0 && (
-              <p className="text-sm text-gray-400 mt-0.5">
+              <p className="text-sm text-[#8888A0] mt-0.5">
                 {unreadCount} unread
               </p>
             )}
@@ -198,10 +198,10 @@ export default function NotificationsPage() {
 
         {/* Notifications List */}
         {notifications.length === 0 ? (
-          <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-12 text-center">
-            <div className="w-16 h-16 rounded-full bg-[#222222] flex items-center justify-center mx-auto mb-4">
+          <div className="bg-[#12121a] rounded-2xl border border-white/[0.06] p-12 text-center">
+            <div className="w-16 h-16 rounded-full bg-[#1a1a26] flex items-center justify-center mx-auto mb-4">
               <svg
-                className="w-8 h-8 text-gray-600"
+                className="w-8 h-8 text-[#555570]"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -214,20 +214,20 @@ export default function NotificationsPage() {
                 />
               </svg>
             </div>
-            <h3 className="text-lg font-semibold text-white mb-1">No notifications</h3>
-            <p className="text-gray-500 text-sm">
+            <h3 className="text-lg font-semibold text-[#F0F0F5] mb-1">No notifications</h3>
+            <p className="text-[#555570] text-sm">
               You&apos;re all caught up. New notifications will appear here.
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 animate-fade-in-up">
             {notifications.map((notification) => {
               const config = NOTIFICATION_CONFIG[notification.type] ?? NOTIFICATION_CONFIG.shift_posted
               return (
                 <div
                   key={notification.id}
-                  className={`bg-[#1a1a1a] rounded-xl border transition ${
-                    notification.read ? 'border-[#2a2a2a]' : 'border-[#2a2a2a] border-l-4'
+                  className={`bg-[#12121a] rounded-xl border transition ${
+                    notification.read ? 'border-white/[0.06]' : 'border-white/[0.06] border-l-4'
                   }`}
                   style={
                     !notification.read ? { borderLeftColor: config.color } : undefined
@@ -250,18 +250,18 @@ export default function NotificationsPage() {
                             <div className="flex items-center gap-2">
                               <h3
                                 className={`text-sm font-semibold truncate ${
-                                  notification.read ? 'text-gray-300' : 'text-white'
+                                  notification.read ? 'text-[#8888A0]' : 'text-[#F0F0F5]'
                                 }`}
                               >
                                 {notification.title}
                               </h3>
                               {!notification.read && (
-                                <span className="w-2 h-2 rounded-full bg-[#2196F3] flex-shrink-0" />
+                                <span className="w-2 h-2 rounded-full bg-[#4A9FFF] flex-shrink-0" />
                               )}
                             </div>
                             <p
                               className={`text-sm mt-0.5 ${
-                                notification.read ? 'text-gray-500' : 'text-gray-400'
+                                notification.read ? 'text-[#555570]' : 'text-[#8888A0]'
                               }`}
                             >
                               {notification.message}
@@ -271,7 +271,7 @@ export default function NotificationsPage() {
 
                         {/* Footer: timestamp + actions */}
                         <div className="flex items-center justify-between mt-2">
-                          <span className="text-xs text-gray-600">
+                          <span className="text-xs text-[#555570]">
                             {formatDistanceToNow(new Date(notification.created_at), {
                               addSuffix: true,
                             })}
@@ -280,14 +280,14 @@ export default function NotificationsPage() {
                             {!notification.read && (
                               <button
                                 onClick={() => markAsRead(notification.id)}
-                                className="text-xs text-gray-500 hover:text-gray-300 transition"
+                                className="text-xs text-[#555570] hover:text-[#8888A0] transition"
                               >
                                 Mark as read
                               </button>
                             )}
                             <button
                               onClick={() => deleteNotification(notification.id)}
-                              className="text-xs text-gray-600 hover:text-red-400 transition"
+                              className="text-xs text-[#555570] hover:text-red-400 transition"
                             >
                               Delete
                             </button>
