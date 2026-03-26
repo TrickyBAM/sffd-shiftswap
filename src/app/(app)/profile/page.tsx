@@ -392,6 +392,20 @@ export default function ProfilePage() {
           )}
         </div>
 
+        {/* Schedule */}
+        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-6">
+          <h2 className="text-lg font-semibold text-white mb-2">Schedule</h2>
+          <p className="text-sm text-gray-400 mb-4">
+            If your schedule has changed, you can recalibrate it by re-entering your work days.
+          </p>
+          <button
+            onClick={() => router.push('/schedule-setup')}
+            className="w-full py-2.5 px-4 bg-[#2196F3] hover:bg-[#1976D2] text-white font-semibold rounded-lg transition"
+          >
+            Recalibrate Schedule
+          </button>
+        </div>
+
         {/* Sign Out */}
         <button
           onClick={handleSignOut}

@@ -36,7 +36,7 @@ export async function updateSession(request: NextRequest) {
   const path = request.nextUrl.pathname
 
   // Protected routes
-  const protectedRoutes = ['/dashboard', '/post-shift', '/shift-board', '/profile', '/notifications', '/onboarding']
+  const protectedRoutes = ['/dashboard', '/post-shift', '/shift-board', '/profile', '/notifications', '/onboarding', '/schedule-setup']
   const authRoutes = ['/login', '/signup', '/verify-email']
 
   const isProtected = protectedRoutes.some(r => path.startsWith(r))

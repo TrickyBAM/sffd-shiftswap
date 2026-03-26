@@ -23,10 +23,21 @@ export async function GET(request: NextRequest) {
           .eq('id', user.id)
           .single()
 
-        if (profile?.profile_complete) {
-          redirectUrl.pathname = '/dashboard'
-        } else {
+        if (!profile?.profile_complete) {
           redirectUrl.pathname = '/onboarding'
+        } else {
+          // Check if schedule is set up
+          const { data: schedule } = await supabase
+            .from('schedules')
+            .select('setup_complete')
+            .eq('user_id', user.id)
+            .single()
+
+          if (!schedule || !schedule.setup_complete) {
+            redirectUrl.pathname = '/schedule-setup'
+          } else {
+            redirectUrl.pathname = '/dashboard'
+          }
         }
 
         redirectUrl.search = ''

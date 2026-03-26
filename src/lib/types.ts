@@ -80,3 +80,14 @@ export interface SFFDBattalion {
   id: number
   stations: number[]
 }
+
+export interface Schedule {
+  id: string
+  user_id: string
+  work_dates: string[]
+  gap_pattern: number[]
+  anchor_date: string
+  setup_complete: boolean
+  created_at: string
+  updated_at: string
+}

@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/contexts/ProfileContext'
-import { getTourWorkDaysInMonth } from '@/lib/tours'
-import { Shift } from '@/lib/types'
+import { Shift, Schedule } from '@/lib/types'
+import { getWorkDatesForMonth } from '@/lib/schedule'
 import {
   format,
   startOfMonth,
@@ -19,21 +19,23 @@ import {
   isToday,
 } from 'date-fns'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import Link from 'next/link'
 
-type DayType = 'tour' | 'open' | 'covered' | 'swapmatch' | null
+type DayType = 'work' | 'open' | 'covered' | 'swapmatch' | null
 
 interface DayInfo {
   date: Date
   dateStr: string
   type: DayType
   shifts: Shift[]
-  isTourDay: boolean
+  isWorkDay: boolean
 }
 
 export default function DashboardPage() {
   const { profile, loading: profileLoading } = useProfile()
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [shifts, setShifts] = useState<Shift[]>([])
+  const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [shiftsLoading, setShiftsLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState<DayInfo | null>(null)
 
@@ -58,6 +60,20 @@ export default function DashboardPage() {
     }
     setShiftsLoading(false)
   }, [profile, currentMonth, supabase])
+
+  // Fetch schedule
+  useEffect(() => {
+    if (!profile) return
+    const fetchSchedule = async () => {
+      const { data } = await supabase
+        .from('schedules')
+        .select('*')
+        .eq('user_id', profile.id)
+        .single()
+      if (data) setSchedule(data as Schedule)
+    }
+    fetchSchedule()
+  }, [profile, supabase])
 
   // Fetch shifts when month or profile changes
   useEffect(() => {
@@ -97,20 +113,22 @@ export default function DashboardPage() {
   const calendarEnd = endOfWeek(monthEnd) // Saturday
   const calendarDays = eachDayOfInterval({ start: calendarStart, end: calendarEnd })
 
-  // Get tour work days for the month
-  const tourWorkDays = profile
-    ? getTourWorkDaysInMonth(
-        profile.tour,
-        currentMonth.getFullYear(),
-        currentMonth.getMonth() + 1
-      )
-    : []
+  // Get work days for the month from schedule
+  const workDays = useMemo(() => {
+    if (!schedule || !schedule.setup_complete) return []
+    return getWorkDatesForMonth(
+      schedule.anchor_date,
+      schedule.gap_pattern,
+      currentMonth.getFullYear(),
+      currentMonth.getMonth() + 1
+    )
+  }, [schedule, currentMonth])
 
   // Build day info
   function getDayInfo(date: Date): DayInfo {
     const dateStr = format(date, 'yyyy-MM-dd')
     const dayShifts = shifts.filter((s) => s.date === dateStr)
-    const isTourDay = tourWorkDays.includes(dateStr)
+    const isWorkDay = workDays.includes(dateStr)
 
     let type: DayType = null
 
@@ -127,15 +145,15 @@ export default function DashboardPage() {
       type = 'open'
     } else if (hasCovered) {
       type = 'covered'
-    } else if (isTourDay) {
-      type = 'tour'
+    } else if (isWorkDay) {
+      type = 'work'
     }
 
-    return { date, dateStr, type, shifts: dayShifts, isTourDay }
+    return { date, dateStr, type, shifts: dayShifts, isWorkDay }
   }
 
   const dayColors: Record<string, { bg: string; text: string; border: string }> = {
-    tour: { bg: 'bg-[#2196F3]/15', text: 'text-[#2196F3]', border: 'border-[#2196F3]/40' },
+    work: { bg: 'bg-[#D32F2F]/15', text: 'text-[#D32F2F]', border: 'border-[#D32F2F]/40' },
     open: { bg: 'bg-[#FF5722]/15', text: 'text-[#FF5722]', border: 'border-[#FF5722]/40' },
     covered: { bg: 'bg-[#9E9E9E]/15', text: 'text-[#9E9E9E]', border: 'border-[#9E9E9E]/40' },
     swapmatch: { bg: 'bg-[#9C27B0]/15', text: 'text-[#9C27B0]', border: 'border-[#9C27B0]/40' },
@@ -270,9 +288,9 @@ export default function DashboardPage() {
                       )}
                     </div>
                   )}
-                  {/* Tour day indicator (small bar) */}
-                  {info.isTourDay && info.type === 'tour' && (
-                    <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-3 h-0.5 rounded-full bg-[#2196F3]/60" />
+                  {/* Work day indicator (small bar) */}
+                  {info.isWorkDay && info.type === 'work' && (
+                    <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-3 h-0.5 rounded-full bg-[#D32F2F]/60" />
                   )}
                 </button>
               )
@@ -283,8 +301,8 @@ export default function DashboardPage() {
         {/* Legend */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 sm:px-6 py-3 border-t border-[#2a2a2a]">
           <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#2196F3]" />
-            <span className="text-xs text-[#888]">Tour Day</span>
+            <span className="w-2.5 h-2.5 rounded-full bg-[#D32F2F]" />
+            <span className="text-xs text-[#888]">Work Day</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="w-2.5 h-2.5 rounded-full bg-[#FF5722]" />
@@ -318,12 +336,12 @@ export default function DashboardPage() {
                   {format(selectedDay.date, 'EEEE, MMMM d')}
                 </h3>
                 <div className="flex items-center gap-2 mt-1">
-                  {selectedDay.isTourDay && (
-                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#2196F3]/15 text-[#2196F3] border border-[#2196F3]/30">
-                      Tour Day
+                  {selectedDay.isWorkDay && (
+                    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-[#D32F2F]/15 text-[#D32F2F] border border-[#D32F2F]/30">
+                      Work Day
                     </span>
                   )}
-                  {selectedDay.type && selectedDay.type !== 'tour' && (
+                  {selectedDay.type && selectedDay.type !== 'work' && (
                     <span
                       className="text-xs font-medium px-2 py-0.5 rounded-full border"
                       style={{
@@ -367,11 +385,21 @@ export default function DashboardPage() {
             {/* Modal Body */}
             <div className="px-5 py-4">
               {selectedDay.shifts.length === 0 ? (
-                <p className="text-sm text-[#666] text-center py-4">
-                  {selectedDay.isTourDay
-                    ? 'You are scheduled to work this day. No shift trades posted.'
-                    : 'No shifts for this day.'}
-                </p>
+                <div className="text-center py-4">
+                  <p className="text-sm text-[#666]">
+                    {selectedDay.isWorkDay
+                      ? 'You are scheduled to work this day.'
+                      : 'No shifts for this day.'}
+                  </p>
+                  {selectedDay.isWorkDay && (
+                    <Link
+                      href={`/post-shift?date=${selectedDay.dateStr}`}
+                      className="inline-block mt-3 px-4 py-2 text-sm font-medium bg-[#FF5722] hover:bg-[#E64A19] text-white rounded-lg transition"
+                    >
+                      Post this shift for trade?
+                    </Link>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-3">
                   {selectedDay.shifts.map((shift) => (
