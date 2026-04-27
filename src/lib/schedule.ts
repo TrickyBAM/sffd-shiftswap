@@ -1,5 +1,6 @@
 import {
   addDays,
+  addMonths,
   differenceInCalendarDays,
   startOfMonth,
   endOfMonth,
@@ -18,6 +19,23 @@ export interface ValidationResult {
   isValid: boolean
   pattern: number[]
   confidence: number
+}
+
+/**
+ * Choose the month to ask the user to confirm after their selected work days.
+ * Uses the month after the latest selected day so recalibration works for
+ * past or future months, not just the current calendar month.
+ */
+export function getPredictionMonth(
+  workDates: Date[],
+  fallbackMonth: Date = new Date()
+): Date {
+  const sortedValidDates = [...workDates]
+    .filter((date) => isValid(date))
+    .sort((a, b) => a.getTime() - b.getTime())
+
+  const baseMonth = sortedValidDates.at(-1) ?? fallbackMonth
+  return startOfMonth(addMonths(baseMonth, 1))
 }
 
 /**

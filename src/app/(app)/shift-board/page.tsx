@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/contexts/ProfileContext'
 import {
@@ -16,7 +17,24 @@ import { Shift } from '@/lib/types'
 
 const PAGE_SIZE = 20
 
+function getEligibilityFilter(profile: {
+  id: string
+  station: number
+  battalion: number
+  division: number
+}) {
+  return [
+    `poster_id.eq.${profile.id}`,
+    'accept_limit_type.is.null',
+    'accept_limit_type.eq.',
+    `and(accept_limit_type.eq.station,station.eq.${profile.station})`,
+    `and(accept_limit_type.eq.battalion,battalion.eq.${profile.battalion})`,
+    `and(accept_limit_type.eq.division,division.eq.${profile.division})`,
+  ].join(',')
+}
+
 export default function ShiftBoardPage() {
+  const router = useRouter()
   const { profile } = useProfile()
   const [shifts, setShifts] = useState<Shift[]>([])
   const [loading, setLoading] = useState(true)
@@ -70,6 +88,7 @@ export default function ShiftBoardPage() {
   }
 
   const fetchShifts = useCallback(async (offset = 0, append = false) => {
+    if (!profile) return
     if (!append) setLoading(true)
     else setLoadingMore(true)
 
@@ -79,6 +98,7 @@ export default function ShiftBoardPage() {
         .from('shifts')
         .select('*')
         .eq('status', 'open')
+        .or(getEligibilityFilter(profile))
         .order('date', { ascending: true })
         .range(offset, offset + PAGE_SIZE)
 
@@ -108,7 +128,7 @@ export default function ShiftBoardPage() {
       setLoading(false)
       setLoadingMore(false)
     }
-  }, [filterDivision, filterBattalion, filterStation])
+  }, [filterDivision, filterBattalion, filterStation, profile])
 
   useEffect(() => { fetchShifts() }, [fetchShifts])
 
@@ -130,12 +150,11 @@ export default function ShiftBoardPage() {
       const supabase = createClient()
       const { error: rpcError } = await supabase.rpc('accept_shift', {
         p_shift_id: shift.id,
-        p_coverer_id: profile.id,
-        p_coverer_name: profile.full_name,
       })
       if (rpcError) throw rpcError
       setConfirmShift(null)
       showToast('Shift accepted successfully!', 'success')
+      router.refresh()
       fetchShifts()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to accept shift'
@@ -150,23 +169,14 @@ export default function ShiftBoardPage() {
     setCancelling(true)
     try {
       const supabase = createClient()
-      const { error: updateError } = await supabase
-        .from('shifts')
-        .update({ status: 'cancelled' })
-        .eq('id', shift.id)
-        .eq('poster_id', profile.id)
-      if (updateError) throw updateError
-
-      await supabase
-        .from('profiles')
-        .update({
-          trade_requested: Math.max(0, profile.trade_requested - 1),
-          trade_outstanding: Math.max(0, profile.trade_outstanding - 1),
-        })
-        .eq('id', profile.id)
+      const { error: rpcError } = await supabase.rpc('cancel_shift', {
+        p_shift_id: shift.id,
+      })
+      if (rpcError) throw rpcError
 
       setCancelShift(null)
       showToast('Shift cancelled successfully.', 'success')
+      router.refresh()
       fetchShifts()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to cancel shift'

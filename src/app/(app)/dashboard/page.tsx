@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/contexts/ProfileContext'
 import { Shift, Schedule } from '@/lib/types'
@@ -15,7 +16,6 @@ import {
   subMonths,
   eachDayOfInterval,
   isSameMonth,
-  isSameDay,
   isToday,
 } from 'date-fns'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
@@ -38,6 +38,7 @@ interface DayInfo {
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
   const { profile, loading: profileLoading } = useProfile()
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [shifts, setShifts] = useState<Shift[]>([])
@@ -59,25 +60,15 @@ export default function DashboardPage() {
     if (!cancelTarget || !profile) return
     setCancelling(true)
     try {
-      const { error } = await supabase
-        .from('shifts')
-        .update({ status: 'cancelled' })
-        .eq('id', cancelTarget.shiftId)
-        .eq('poster_id', profile.id)
-
+      const { error } = await supabase.rpc('cancel_shift', {
+        p_shift_id: cancelTarget.shiftId,
+      })
       if (error) throw error
-
-      await supabase
-        .from('profiles')
-        .update({
-          trade_requested: Math.max(0, profile.trade_requested - 1),
-          trade_outstanding: Math.max(0, profile.trade_outstanding - 1),
-        })
-        .eq('id', profile.id)
 
       setCancelTarget(null)
       setSelectedDay(null)
       showToast('Shift cancelled successfully.', 'success')
+      router.refresh()
       fetchShifts()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to cancel shift'

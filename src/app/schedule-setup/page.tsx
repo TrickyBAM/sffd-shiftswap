@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/contexts/ProfileContext'
 import { useRouter } from 'next/navigation'
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import {
   format,
   startOfMonth,
@@ -20,6 +20,7 @@ import {
 } from 'date-fns'
 import {
   detectSchedulePattern,
+  getPredictionMonth,
   getWorkDatesForMonth,
   refinePattern,
   projectSchedule,
@@ -122,7 +123,7 @@ export default function ScheduleSetupPage() {
   const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set())
 
   // Screen 2 state
-  const [predictedMonth] = useState<Date>(addMonths(new Date(), 1))
+  const [predictedMonth, setPredictedMonth] = useState<Date>(() => getPredictionMonth([], new Date()))
   const [adjustedDates, setAdjustedDates] = useState<Set<string>>(new Set())
   const [pattern, setPattern] = useState<PatternResult | null>(null)
 
@@ -159,8 +160,10 @@ export default function ScheduleSetupPage() {
     const detected = detectSchedulePattern(dates)
     setPattern(detected)
 
-    // Project next month
-    const nextMonth = addMonths(new Date(), 1)
+    // Project the month after the user's latest selected work day.
+    const nextMonth = getPredictionMonth(dates, viewMonth)
+    setPredictedMonth(nextMonth)
+
     const projectedDatesArr = getWorkDatesForMonth(
       detected.anchorDate,
       detected.gapPattern,

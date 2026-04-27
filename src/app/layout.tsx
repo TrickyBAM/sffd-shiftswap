@@ -1,5 +1,17 @@
 import type { Metadata, Viewport } from 'next'
+import { Bebas_Neue, DM_Sans } from 'next/font/google'
 import './globals.css'
+
+const bebasNeue = Bebas_Neue({
+  subsets: ['latin'],
+  weight: '400',
+  variable: '--font-bebas-neue',
+})
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  variable: '--font-dm-sans',
+})
 
 export const metadata: Metadata = {
   title: 'SFFD ShiftSwap',
@@ -24,16 +36,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="min-h-screen bg-[#0a0a0f] text-[#F0F0F5] font-['DM_Sans',sans-serif]">{children}</body>
+    <html lang="en" className={`${dmSans.variable} ${bebasNeue.variable}`}>
+      <body className="min-h-screen bg-[#0a0a0f] text-[#F0F0F5]">{children}</body>
     </html>
   )
 }

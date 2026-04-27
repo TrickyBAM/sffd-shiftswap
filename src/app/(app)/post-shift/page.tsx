@@ -1,12 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { z } from 'zod'
+import { zodResolver } from '@hookform/resolvers/zod'
 import { createClient } from '@/lib/supabase/client'
-import { useProfile } from '@/contexts/ProfileContext'
 import { SHIFT_TYPES } from '@/lib/sffd'
-import type { ShiftType, AcceptLimitType } from '@/lib/types'
 
 const postShiftSchema = z.object({
   date: z.string().min(1, 'Date is required'),
@@ -20,7 +20,8 @@ const postShiftSchema = z.object({
 type PostShiftForm = z.infer<typeof postShiftSchema>
 
 export default function PostShiftPage() {
-  const { profile } = useProfile()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [submitting, setSubmitting] = useState(false)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
@@ -30,8 +31,10 @@ export default function PostShiftPage() {
     watch,
     control,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<PostShiftForm>({
+    resolver: zodResolver(postShiftSchema),
     defaultValues: {
       date: '',
       shift_type: '24-Hour',
@@ -49,6 +52,13 @@ export default function PostShiftPage() {
 
   const swapMatchEnabled = watch('swap_match')
 
+  useEffect(() => {
+    const date = searchParams.get('date')
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setValue('date', date)
+    }
+  }, [searchParams, setValue])
+
   const showToast = (message: string, type: 'success' | 'error') => {
     setToast({ message, type })
     setTimeout(() => setToast(null), 4000)
@@ -63,35 +73,18 @@ export default function PostShiftPage() {
         ? data.return_dates.map(rd => rd.date)
         : []
 
-      const { error } = await supabase.from('shifts').insert({
-        poster_id: profile.id,
-        poster_name: profile.full_name,
-        division: profile.division,
-        battalion: profile.battalion,
-        station: profile.station,
-        rank: profile.rank,
-        date: data.date,
-        shift_type: data.shift_type as ShiftType,
-        status: 'open',
-        return_dates: returnDates,
-        accept_limit_type: data.accept_limit_type as AcceptLimitType,
-        notes: data.notes || null,
+      const { error } = await supabase.rpc('post_shift', {
+        p_date: data.date,
+        p_shift_type: data.shift_type,
+        p_notes: data.notes || null,
+        p_return_dates: returnDates,
+        p_accept_limit_type: data.accept_limit_type,
       })
 
       if (error) throw error
 
-      // Increment trade_requested and trade_outstanding on the profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          trade_requested: profile.trade_requested + 1,
-          trade_outstanding: profile.trade_outstanding + 1,
-        })
-        .eq('id', profile.id)
-
-      if (profileError) throw profileError
-
       reset()
+      router.refresh()
       showToast('Shift posted successfully!', 'success')
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to post shift'

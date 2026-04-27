@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/contexts/ProfileContext'
 import { formatDistanceToNow } from 'date-fns'
@@ -53,25 +53,28 @@ export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
 
-  const fetchNotifications = useCallback(async () => {
-    if (!profile) return
-    const supabase = createClient()
-    const { data, error } = await supabase
-      .from('notifications')
-      .select('*')
-      .eq('user_id', profile.id)
-      .order('created_at', { ascending: false })
-
-    if (!error && data) {
-      setNotifications(data as Notification[])
-    }
-    setLoading(false)
-  }, [profile])
-
   useEffect(() => {
     if (!profile) return
 
-    fetchNotifications()
+    let cancelled = false
+
+    async function loadNotifications() {
+      const supabase = createClient()
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', profile.id)
+        .order('created_at', { ascending: false })
+
+      if (cancelled) return
+
+      if (!error && data) {
+        setNotifications(data as Notification[])
+      }
+      setLoading(false)
+    }
+
+    void loadNotifications()
 
     // Real-time subscription
     const supabase = createClient()
@@ -118,9 +121,10 @@ export default function NotificationsPage() {
       .subscribe()
 
     return () => {
+      cancelled = true
       supabase.removeChannel(channel)
     }
-  }, [profile, fetchNotifications])
+  }, [profile])
 
   async function markAsRead(id: string) {
     const supabase = createClient()

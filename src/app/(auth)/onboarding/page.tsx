@@ -2,12 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { createClient } from '@/lib/supabase/client'
 import {
-  SFFD_HIERARCHY,
   RANKS,
   POSITION_TYPES,
   getStationsForBattalion,
@@ -38,7 +37,7 @@ export default function OnboardingPage() {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<OnboardingForm>({
@@ -53,8 +52,8 @@ export default function OnboardingPage() {
     },
   })
 
-  const selectedDivision = watch('division')
-  const selectedBattalion = watch('battalion')
+  const selectedDivision = useWatch({ control, name: 'division' })
+  const selectedBattalion = useWatch({ control, name: 'battalion' })
 
   const battalions = selectedDivision ? getBattalionsForDivision(selectedDivision) : []
   const stations = selectedBattalion ? getStationsForBattalion(selectedBattalion) : []

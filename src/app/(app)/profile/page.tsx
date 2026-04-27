@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useForm } from 'react-hook-form'
+import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { createClient } from '@/lib/supabase/client'
@@ -27,7 +27,6 @@ const profileSchema = z.object({
   battalion: z.coerce.number(),
   station: z.coerce.number(),
   phone: z.string().optional(),
-  email: z.string().email('Please enter a valid email'),
 })
 
 type ProfileFormValues = z.infer<typeof profileSchema>
@@ -42,7 +41,7 @@ export default function ProfilePage() {
   const {
     register,
     handleSubmit,
-    watch,
+    control,
     reset,
     setValue,
     formState: { errors },
@@ -57,12 +56,11 @@ export default function ProfilePage() {
       battalion: profile?.battalion ?? 1,
       station: profile?.station ?? 2,
       phone: profile?.phone ?? '',
-      email: profile?.email ?? '',
     },
   })
 
-  const watchDivision = watch('division')
-  const watchBattalion = watch('battalion')
+  const watchDivision = useWatch({ control, name: 'division' })
+  const watchBattalion = useWatch({ control, name: 'battalion' })
   const battalions = getBattalionsForDivision(Number(watchDivision))
   const stations = getStationsForBattalion(Number(watchBattalion))
 
@@ -104,7 +102,6 @@ export default function ProfilePage() {
         battalion: data.battalion,
         station: data.station,
         phone: data.phone || null,
-        email: data.email,
         updated_at: new Date().toISOString(),
       })
       .eq('id', profile.id)
@@ -137,7 +134,6 @@ export default function ProfilePage() {
       battalion: profile.battalion,
       station: profile.station,
       phone: profile.phone ?? '',
-      email: profile.email,
     })
     setIsEditing(false)
     setServerError(null)
@@ -239,13 +235,14 @@ export default function ProfilePage() {
                 <label className={labelClasses}>Email</label>
                 <input
                   type="email"
-                  {...register('email')}
-                  className={inputClasses}
-                  placeholder="you@sfgov.org"
+                  value={profile.email}
+                  className={`${inputClasses} opacity-70 cursor-not-allowed`}
+                  disabled
+                  readOnly
                 />
-                {errors.email && (
-                  <p className="mt-1 text-sm text-red-400">{errors.email.message}</p>
-                )}
+                <p className="mt-1 text-xs text-[#555570]">
+                  Email changes must be handled through account settings.
+                </p>
               </div>
 
               {/* Phone */}
