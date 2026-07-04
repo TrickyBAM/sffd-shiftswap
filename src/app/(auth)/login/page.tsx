@@ -37,7 +37,13 @@ export default function LoginPage() {
     })
 
     if (error) {
-      setServerError(error.message)
+      if (/fetch|network|load failed/i.test(error.message)) {
+        setServerError('Cannot reach the ShiftSwap server right now. Check your signal and try again in a minute.')
+      } else if (/invalid login credentials/i.test(error.message)) {
+        setServerError('That email and password did not match. Check them and try again, or reset your password below.')
+      } else {
+        setServerError(error.message)
+      }
       return
     }
 
@@ -122,6 +128,11 @@ export default function LoginPage() {
           Don&apos;t have an account?{' '}
           <Link href="/signup" className="text-[#D32F2F] hover:text-[#FF3D3D] font-medium transition">
             Sign up
+          </Link>
+        </p>
+        <p className="mt-2 text-center text-sm">
+          <Link href="/forgot-password" className="text-[#555570] hover:text-[#8888A0] transition">
+            Forgot your password?
           </Link>
         </p>
       </div>

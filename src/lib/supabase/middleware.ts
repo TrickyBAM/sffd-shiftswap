@@ -29,9 +29,15 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // A stale or corrupt session cookie must never take the app down.
+  // Any failure here is treated as "not signed in".
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  } catch {
+    user = null
+  }
 
   const path = request.nextUrl.pathname
 

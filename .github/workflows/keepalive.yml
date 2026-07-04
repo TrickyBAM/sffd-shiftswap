@@ -1,0 +1,21 @@
+name: Supabase keepalive backup
+
+on:
+  schedule:
+    # Daily at 03:17 UTC, offset from the Vercel cron so the two
+    # pings land at different times of day.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping keepalive endpoint
+        run: |
+          status=$(curl -s -o response.json -w "%{http_code}" --max-time 30 https://sffd-shiftswap.vercel.app/api/keepalive)
+          cat response.json
+          if [ "$status" != "200" ]; then
+            echo "Keepalive returned HTTP $status"
+            exit 1
+          fi

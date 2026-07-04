@@ -4,11 +4,19 @@ import { createClient } from '@/lib/supabase/server'
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const code = searchParams.get('code')
+  const next = searchParams.get('next')
   const redirectUrl = request.nextUrl.clone()
 
   if (code) {
     const supabase = await createClient()
     const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+    // Password recovery and similar flows land on their own page.
+    if (!error && next && next.startsWith('/') && !next.startsWith('//')) {
+      redirectUrl.pathname = next
+      redirectUrl.search = ''
+      return Response.redirect(redirectUrl)
+    }
 
     if (!error) {
       // Check if profile is complete

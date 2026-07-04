@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import { Bebas_Neue, DM_Sans } from 'next/font/google'
+import PWARegister from '@/components/PWARegister'
 import './globals.css'
 
 const bebasNeue = Bebas_Neue({
@@ -37,7 +38,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${dmSans.variable} ${bebasNeue.variable}`}>
-      <body className="min-h-screen bg-[#0a0a0f] text-[#F0F0F5]">{children}</body>
+      <body className="min-h-screen bg-[#0a0a0f] text-[#F0F0F5]">
+        <PWARegister />
+        {children}
+      </body>
     </html>
   )
 }

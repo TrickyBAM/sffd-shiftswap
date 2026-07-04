@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/contexts/ProfileContext'
-import { Shift, Schedule } from '@/lib/types'
+import { Shift, Schedule, MatchedTrade } from '@/lib/types'
 import { getWorkDatesForMonth } from '@/lib/schedule'
 import {
   format,
@@ -42,6 +42,7 @@ export default function DashboardPage() {
   const { profile, loading: profileLoading } = useProfile()
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [shifts, setShifts] = useState<Shift[]>([])
+  const [swaps, setSwaps] = useState<MatchedTrade[]>([])
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [shiftsLoading, setShiftsLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState<DayInfo | null>(null)
@@ -97,6 +98,20 @@ export default function DashboardPage() {
     }
     setShiftsLoading(false)
   }, [profile, currentMonth, supabase])
+
+  useEffect(() => {
+    if (!profile) return
+    const fetchSwaps = async () => {
+      const { data } = await supabase
+        .from('matched_trades')
+        .select('*')
+        .or(`poster_id.eq.${profile.id},taker_id.eq.${profile.id}`)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      if (data) setSwaps(data as MatchedTrade[])
+    }
+    fetchSwaps()
+  }, [profile, supabase])
 
   useEffect(() => {
     if (!profile) return
@@ -347,6 +362,48 @@ export default function DashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* Confirmed Swaps */}
+      {swaps.length > 0 && (
+        <div className="animate-fade-in-up delay-3 mt-6 bg-[#12121a] rounded-2xl border border-white/[0.06] overflow-hidden">
+          <div className="px-4 sm:px-6 py-4 border-b border-white/[0.06]">
+            <h2 className="font-display text-2xl tracking-wide text-[#F0F0F5]">
+              CONFIRMED <span className="text-[#9C6AFF]">SWAPS</span>
+            </h2>
+          </div>
+          <div className="divide-y divide-white/[0.06]">
+            {swaps.map((swap) => {
+              const iAmTaker = swap.taker_id === profile?.id
+              const otherName = iAmTaker ? swap.poster_name : swap.taker_name
+              const fmt = (d: string) =>
+                new Date(d + 'T00:00:00').toLocaleDateString('en-US', {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                })
+              return (
+                <div key={swap.id} className="px-4 sm:px-6 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm text-[#F0F0F5] font-medium truncate">
+                        Swap with {otherName}
+                      </p>
+                      <p className="text-xs text-[#8888A0] mt-0.5">
+                        {iAmTaker
+                          ? `You work ${fmt(swap.original_date)}. They cover you on ${fmt(swap.return_date)}.`
+                          : `They work ${fmt(swap.original_date)}. You cover them on ${fmt(swap.return_date)}.`}
+                      </p>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wide bg-[#9C6AFF]/15 text-[#9C6AFF] px-2 py-0.5 rounded-full flex-shrink-0">
+                      {swap.status}
+                    </span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Cancel Confirmation Dialog */}
       {cancelTarget && (

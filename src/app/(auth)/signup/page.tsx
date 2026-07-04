@@ -38,7 +38,7 @@ export default function SignupPage() {
     setServerError(null)
     const supabase = createClient()
 
-    const { error } = await supabase.auth.signUp({
+    const { data: signUpData, error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
       options: {
@@ -49,11 +49,23 @@ export default function SignupPage() {
     })
 
     if (error) {
-      setServerError(error.message)
+      if (/fetch|network|load failed/i.test(error.message)) {
+        setServerError('Cannot reach the ShiftSwap server right now. Check your signal and try again in a minute.')
+      } else {
+        setServerError(error.message)
+      }
       return
     }
 
-    router.push('/verify-email')
+    // With email confirmation off, signup returns a live session and the
+    // member goes straight to onboarding. If confirmation is ever turned
+    // back on, there is no session yet and we show the check inbox page.
+    if (signUpData.session) {
+      router.push('/onboarding')
+      router.refresh()
+    } else {
+      router.push('/verify-email')
+    }
   }
 
   const inputClasses = "w-full px-4 py-3 bg-[#12121a] border border-white/[0.06] rounded-xl text-[#F0F0F5] placeholder-[#555570] focus:outline-none focus:ring-2 focus:ring-[#D32F2F]/50 focus:border-transparent transition"

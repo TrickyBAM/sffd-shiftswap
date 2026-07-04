@@ -48,6 +48,7 @@ export default function ShiftBoardPage() {
 
   const [confirmShift, setConfirmShift] = useState<Shift | null>(null)
   const [accepting, setAccepting] = useState(false)
+  const [selectedReturnDate, setSelectedReturnDate] = useState<string | null>(null)
 
   const [cancelShift, setCancelShift] = useState<Shift | null>(null)
   const [cancelling, setCancelling] = useState(false)
@@ -145,6 +146,11 @@ export default function ShiftBoardPage() {
 
   const handleAccept = async (shift: Shift) => {
     if (!profile) return
+    const isSwapMatch = shift.return_dates && shift.return_dates.length > 0
+    if (isSwapMatch && !selectedReturnDate) {
+      showToast('Pick the return date you want covered first.', 'error')
+      return
+    }
     setAccepting(true)
     try {
       const supabase = createClient()
@@ -152,8 +158,35 @@ export default function ShiftBoardPage() {
         p_shift_id: shift.id,
       })
       if (rpcError) throw rpcError
+
+      // SwapMatch: record the agreed swap and tell the poster which
+      // return date was chosen. The accept itself already succeeded.
+      if (isSwapMatch && selectedReturnDate) {
+        const { error: swapError } = await supabase.from('matched_trades').insert({
+          original_shift_id: shift.id,
+          original_date: shift.date,
+          return_date: selectedReturnDate,
+          poster_id: shift.poster_id,
+          taker_id: profile.id,
+          poster_name: shift.poster_name,
+          taker_name: profile.full_name,
+          status: 'confirmed',
+        })
+        if (!swapError) {
+          await supabase.from('notifications').insert({
+            user_id: shift.poster_id,
+            type: 'swap_confirmed',
+            title: 'SwapMatch Confirmed!',
+            message: `${profile.full_name} covers your ${formatDate(shift.date)} shift. You cover their ${formatDate(selectedReturnDate)} shift in return.`,
+            shift_id: shift.id,
+            related_user_id: profile.id,
+          })
+        }
+      }
+
       setConfirmShift(null)
-      showToast('Shift accepted successfully!', 'success')
+      setSelectedReturnDate(null)
+      showToast(isSwapMatch ? 'SwapMatch confirmed!' : 'Shift accepted successfully!', 'success')
       router.refresh()
       fetchShifts()
     } catch (err: unknown) {
@@ -343,17 +376,48 @@ export default function ShiftBoardPage() {
       {confirmShift && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
           <div className="bg-[#12121a] rounded-2xl border border-white/[0.06] max-w-sm w-full p-6">
-            <h2 className="font-display text-2xl text-[#F0F0F5] mb-2">CONFIRM ACCEPT</h2>
+            <h2 className="font-display text-2xl text-[#F0F0F5] mb-2">
+              {confirmShift.return_dates && confirmShift.return_dates.length > 0 ? 'CONFIRM SWAPMATCH' : 'CONFIRM ACCEPT'}
+            </h2>
             <p className="text-sm text-[#8888A0] mb-1">
               You are about to accept a shift from <span className="text-[#F0F0F5] font-medium">{confirmShift.poster_name}</span>.
             </p>
             <p className="text-sm text-[#8888A0] mb-4">
               <span className="text-[#F0F0F5]">{formatDate(confirmShift.date)}</span> &middot; {confirmShift.shift_type} &middot; {getStationLabel(confirmShift.station)}
             </p>
+
+            {confirmShift.return_dates && confirmShift.return_dates.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm text-[#8888A0] mb-2">
+                  This is a SwapMatch. Pick the date {confirmShift.poster_name.split(' ')[0]} covers for you in return:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {confirmShift.return_dates.map((rd) => (
+                    <button
+                      key={rd}
+                      type="button"
+                      onClick={() => setSelectedReturnDate(rd)}
+                      className={`px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${
+                        selectedReturnDate === rd
+                          ? 'bg-[#9C6AFF]/20 border-[#9C6AFF] text-[#9C6AFF]'
+                          : 'bg-[#1a1a26] border-white/[0.06] text-[#8888A0] hover:border-[#9C6AFF]/50'
+                      }`}
+                    >
+                      {formatDate(rd)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
-              <button onClick={() => setConfirmShift(null)} disabled={accepting} className="flex-1 py-2.5 rounded-xl bg-[#1a1a26] border border-white/[0.06] text-[#8888A0] text-sm font-medium hover:bg-[#222233] transition-colors">Cancel</button>
-              <button onClick={() => handleAccept(confirmShift)} disabled={accepting} className="flex-1 py-2.5 rounded-xl bg-[#D32F2F] text-white text-sm font-semibold hover:bg-[#B71C1C] disabled:opacity-50 transition-colors">
-                {accepting ? 'Accepting...' : 'Accept Shift'}
+              <button onClick={() => { setConfirmShift(null); setSelectedReturnDate(null) }} disabled={accepting} className="flex-1 py-2.5 rounded-xl bg-[#1a1a26] border border-white/[0.06] text-[#8888A0] text-sm font-medium hover:bg-[#222233] transition-colors">Cancel</button>
+              <button
+                onClick={() => handleAccept(confirmShift)}
+                disabled={accepting || (confirmShift.return_dates && confirmShift.return_dates.length > 0 && !selectedReturnDate)}
+                className="flex-1 py-2.5 rounded-xl bg-[#D32F2F] text-white text-sm font-semibold hover:bg-[#B71C1C] disabled:opacity-50 transition-colors"
+              >
+                {accepting ? 'Accepting...' : confirmShift.return_dates && confirmShift.return_dates.length > 0 ? 'Confirm Swap' : 'Accept Shift'}
               </button>
             </div>
           </div>
