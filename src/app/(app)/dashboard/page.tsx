@@ -43,6 +43,7 @@ export default function DashboardPage() {
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [shifts, setShifts] = useState<Shift[]>([])
   const [swaps, setSwaps] = useState<MatchedTrade[]>([])
+  const [swapsError, setSwapsError] = useState(false)
   const [schedule, setSchedule] = useState<Schedule | null>(null)
   const [shiftsLoading, setShiftsLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState<DayInfo | null>(null)
@@ -99,19 +100,25 @@ export default function DashboardPage() {
     setShiftsLoading(false)
   }, [profile, currentMonth, supabase])
 
-  useEffect(() => {
+  const fetchSwaps = useCallback(async () => {
     if (!profile) return
-    const fetchSwaps = async () => {
-      const { data } = await supabase
-        .from('matched_trades')
-        .select('*')
-        .or(`poster_id.eq.${profile.id},taker_id.eq.${profile.id}`)
-        .order('created_at', { ascending: false })
-        .limit(10)
-      if (data) setSwaps(data as MatchedTrade[])
+    const { data, error } = await supabase
+      .from('matched_trades')
+      .select('*')
+      .or(`poster_id.eq.${profile.id},taker_id.eq.${profile.id}`)
+      .order('created_at', { ascending: false })
+      .limit(10)
+    if (error) {
+      setSwapsError(true)
+      return
     }
-    fetchSwaps()
+    setSwapsError(false)
+    if (data) setSwaps(data as MatchedTrade[])
   }, [profile, supabase])
+
+  useEffect(() => {
+    fetchSwaps()
+  }, [fetchSwaps])
 
   useEffect(() => {
     if (!profile) return
@@ -364,7 +371,17 @@ export default function DashboardPage() {
       </div>
 
       {/* Confirmed Swaps */}
-      {swaps.length > 0 && (
+      {swapsError && (
+        <div className="animate-fade-in-up delay-3 mt-6 bg-[#12121a] rounded-2xl border border-white/[0.06] px-4 sm:px-6 py-4">
+          <p className="text-sm text-[#8888A0]">
+            Could not load your confirmed swaps.
+            <button onClick={() => fetchSwaps()} className="ml-2 text-[#9C6AFF] underline hover:no-underline">
+              Retry
+            </button>
+          </p>
+        </div>
+      )}
+      {!swapsError && swaps.length > 0 && (
         <div className="animate-fade-in-up delay-3 mt-6 bg-[#12121a] rounded-2xl border border-white/[0.06] overflow-hidden">
           <div className="px-4 sm:px-6 py-4 border-b border-white/[0.06]">
             <h2 className="font-display text-2xl tracking-wide text-[#F0F0F5]">

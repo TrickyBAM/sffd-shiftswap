@@ -160,9 +160,12 @@ export default function ShiftBoardPage() {
       if (rpcError) throw rpcError
 
       // SwapMatch: record the agreed swap and tell the poster which
-      // return date was chosen. The accept itself already succeeded.
+      // return date was chosen. The accept itself already succeeded, so a
+      // failure here must be surfaced, not swallowed: the return date lives
+      // only in this tab until the insert lands.
+      let swapRecorded = true
       if (isSwapMatch && selectedReturnDate) {
-        const { error: swapError } = await supabase.from('matched_trades').insert({
+        const swapRow = {
           original_shift_id: shift.id,
           original_date: shift.date,
           return_date: selectedReturnDate,
@@ -171,8 +174,13 @@ export default function ShiftBoardPage() {
           poster_name: shift.poster_name,
           taker_name: profile.full_name,
           status: 'confirmed',
-        })
-        if (!swapError) {
+        }
+        let { error: swapError } = await supabase.from('matched_trades').insert(swapRow)
+        if (swapError) {
+          ;({ error: swapError } = await supabase.from('matched_trades').insert(swapRow))
+        }
+        swapRecorded = !swapError
+        if (swapRecorded) {
           await supabase.from('notifications').insert({
             user_id: shift.poster_id,
             type: 'swap_confirmed',
@@ -184,9 +192,17 @@ export default function ShiftBoardPage() {
         }
       }
 
+      const failedReturnDate = selectedReturnDate
       setConfirmShift(null)
       setSelectedReturnDate(null)
-      showToast(isSwapMatch ? 'SwapMatch confirmed!' : 'Shift accepted successfully!', 'success')
+      if (isSwapMatch && !swapRecorded) {
+        showToast(
+          `You have the shift, but saving the swap record failed. Tell ${shift.poster_name} you picked ${failedReturnDate ? formatDate(failedReturnDate) : 'a return date'} so you two can confirm it directly.`,
+          'error'
+        )
+      } else {
+        showToast(isSwapMatch ? 'SwapMatch confirmed!' : 'Shift accepted successfully!', 'success')
+      }
       router.refresh()
       fetchShifts()
     } catch (err: unknown) {
