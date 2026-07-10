@@ -14,6 +14,11 @@ import {
   getDivisionName,
 } from '@/lib/sffd'
 import { Shift } from '@/lib/types'
+import {
+  ATOMIC_ACCEPT_RPC,
+  getAcceptanceErrorMessage,
+  shouldUseLegacyAccept,
+} from '@/lib/shift-acceptance'
 
 const PAGE_SIZE = 20
 
@@ -154,17 +159,29 @@ export default function ShiftBoardPage() {
     setAccepting(true)
     try {
       const supabase = createClient()
-      const { error: rpcError } = await supabase.rpc('accept_shift', {
+      const { error: atomicError } = await supabase.rpc(ATOMIC_ACCEPT_RPC, {
         p_shift_id: shift.id,
+        p_return_date: isSwapMatch ? selectedReturnDate : null,
       })
-      if (rpcError) throw rpcError
 
-      // SwapMatch: record the agreed swap and tell the poster which
-      // return date was chosen. The accept itself already succeeded, so a
-      // failure here must be surfaced, not swallowed: the return date lives
-      // only in this tab until the insert lands.
+      let usedLegacyAccept = false
+      if (atomicError) {
+        if (!shouldUseLegacyAccept(atomicError)) throw atomicError
+
+        // Migration-safe fallback: this is the currently deployed flow and is
+        // used only until phase one adds the atomic RPC to PostgREST.
+        usedLegacyAccept = true
+        const { error: legacyError } = await supabase.rpc('accept_shift', {
+          p_shift_id: shift.id,
+        })
+        if (legacyError) throw legacyError
+      }
+
+      // Before migration 001 exists, finish the legacy two-write flow. Once
+      // the RPC is present, all acceptance, match, balance, and alert writes
+      // happen in one database transaction instead.
       let swapRecorded = true
-      if (isSwapMatch && selectedReturnDate) {
+      if (usedLegacyAccept && isSwapMatch && selectedReturnDate) {
         const swapRow = {
           original_shift_id: shift.id,
           original_date: shift.date,
@@ -206,8 +223,7 @@ export default function ShiftBoardPage() {
       router.refresh()
       fetchShifts()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to accept shift'
-      showToast(message, 'error')
+      showToast(getAcceptanceErrorMessage(err), 'error')
     } finally {
       setAccepting(false)
     }

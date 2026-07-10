@@ -18,12 +18,40 @@ export async function GET() {
   let ok = true
 
   try {
-    const db = await fetch(`${url}/rest/v1/shifts?select=id&limit=1`, {
-      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    const headers = {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    }
+    const rpc = await fetch(`${url}/rest/v1/rpc/app_keepalive`, {
+      method: 'POST',
+      headers,
+      body: '{}',
       cache: 'no-store',
     })
-    results.db = db.status
-    if (!db.ok) ok = false
+
+    if (rpc.ok) {
+      results.db = rpc.status
+    } else {
+      const rpcBody = await rpc.text()
+      const rpcMissing = rpc.status === 404 && (
+        rpcBody.includes('PGRST202') || rpcBody.includes('app_keepalive')
+      )
+
+      if (!rpcMissing) {
+        results.db = rpc.status
+        ok = false
+      } else {
+        // Deployment-safe fallback until migration 001 is applied. Phase 002
+        // removes anonymous shift reads only after this route is live.
+        const legacy = await fetch(`${url}/rest/v1/shifts?select=id&limit=1`, {
+          headers,
+          cache: 'no-store',
+        })
+        results.db = legacy.status
+        if (!legacy.ok) ok = false
+      }
+    }
   } catch {
     results.db = 'unreachable'
     ok = false
