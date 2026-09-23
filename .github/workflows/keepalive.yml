@@ -1,21 +1,50 @@
-name: Supabase keepalive backup
+# Backup for the daily Vercel cron (vercel.json): pings /api/keepalive so the
+# Supabase free-tier database never sits idle long enough to be paused, and
+# doubles as a daily health check. If the app or the database is down, this
+# job fails and GitHub emails the repository owner.
+#
+# Scheduled workflows only run from the default branch (main). Run it by hand
+# from the Actions tab ("Run workflow") to check the app at any time.
+name: Keepalive
 
 on:
   schedule:
-    # Daily at 03:17 UTC, offset from the Vercel cron so the two
-    # pings land at different times of day.
+    # Daily at 03:17 UTC (evening in San Francisco), offset from the Vercel
+    # cron (15:00 UTC) so the two pings land at different times of day.
     - cron: "17 3 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   ping:
+    name: Ping /api/keepalive
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KEEPALIVE_URL: https://sffd-shiftswap.vercel.app/api/keepalive
+      ATTEMPTS: "4"
+      WAIT_SECONDS: "30"
     steps:
-      - name: Ping keepalive endpoint
+      - name: Ping keepalive endpoint (with retries)
+        shell: bash
         run: |
-          status=$(curl -s -o response.json -w "%{http_code}" --max-time 30 https://sffd-shiftswap.vercel.app/api/keepalive)
-          cat response.json
-          if [ "$status" != "200" ]; then
-            echo "Keepalive returned HTTP $status"
-            exit 1
-          fi
+          set -u
+          for attempt in $(seq 1 "$ATTEMPTS"); do
+            rm -f response.json
+            # curl prints 000 when it gets no HTTP answer at all.
+            status=$(curl -sS -o response.json -w "%{http_code}" --max-time 30 \
+              -H "Cache-Control: no-cache" "$KEEPALIVE_URL") || true
+            echo "Attempt $attempt of $ATTEMPTS: HTTP ${status:-000}"
+            if [ -s response.json ]; then cat response.json; echo; fi
+            if [ "${status:-000}" = "200" ]; then
+              echo "ShiftSwap and its database are up."
+              exit 0
+            fi
+            if [ "$attempt" -lt "$ATTEMPTS" ]; then
+              sleep "$WAIT_SECONDS"
+            fi
+          done
+          echo "::error title=ShiftSwap keepalive failed::$KEEPALIVE_URL did not return HTTP 200 after $ATTEMPTS attempts (last status: ${status:-000}). The app or its Supabase database may be down or paused. See 'If ShiftSwap is down' in docs/ADMIN-GUIDE.md."
+          exit 1
