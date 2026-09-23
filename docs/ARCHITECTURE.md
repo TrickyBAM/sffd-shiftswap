@@ -482,3 +482,29 @@ take down `/offline`, `/privacy` or `/api/keepalive` (keepalive reports `{ok:fal
   and `X-Robots-Tag: noindex` (private tool).
 - Service worker never caches authenticated HTML or API/Supabase responses; caches only
   static assets + `/offline`; versioned cache names; old caches deleted on activate.
+
+## 9. Implementation notes (adopted during the foundation build — these override §6/§7 where they differ)
+
+Database
+- **Roster note privacy:** `profiles.status_reason` stays **null while pending** (members can read their own row; the roster is admin-only). The roster-match note lives in `audit_log` (action `member.pending`, `details.roster_note`, `details.roster_id`). `listPendingApprovals()` joins it for the admin queue. `status_reason` is used only for admin reject/suspend reasons.
+- Roster auto-approval is attempted only on an account's **first 3** onboarding submissions (then it stays pending with `auto_approve_blocked`). A **blank employee ID counts as a mismatch** when the roster row has one — the onboarding form should encourage entering it.
+- `request_shift` also requires the TeleStaff acknowledgment (`ACK_REQUIRED`). `YOU_WORK_THAT_DAY` also applies when the requester has an **open post** that day. A shift whose poster is no longer approved is `NOT_OPEN`.
+- `shift_eligibility` returns `{eligible, reasons, valid_return_dates}`; with a null return date on a SwapMatch it evaluates every offered date.
+- Undoing a trade (agreed cancel, admin void) is refused with `ALREADY_COVERING` if it would double-book someone. Agreeing to cancel after either leg started ⇒ `STARTED` (admins can still void).
+- Suspending a member cancels their not-started open posts and closes pending requests on/by them.
+- `push_subscriptions`: `user_id` defaults to `auth.uid()`; inserting an existing endpoint replaces the old row (trigger) — use a **plain insert**. Endpoints must be real push services (CHECK constraint; SQLSTATE `23514` ⇒ show "alerts aren't supported in this browser").
+- Extra functions: `public.signup_rate_check(p_ip_hash, p_max, p_window_minutes)` (service role only) for the sign-up server action; `public.claim_push_batch(p_limit)` (service role only).
+- New-shift fan-out skips anyone with an open post or picked-up shift that day.
+
+Libraries & API
+- `src/lib/api/*` functions take the Supabase client first, **return data directly and throw `AppError`** (`src/lib/errors.ts`); paged reads return `{items, nextCursor}`. Notifying RPC wrappers automatically fire-and-forget `POST /api/push/flush` (browser only; debounced).
+- `diffDays(a, b)` = b − a. `computeMonthDays({userId, tour, year, month, myShifts, boardCounts, today?})` returns 6×7 `weeks` with a `tone` per day (precedence swap > covering > openPost > working > givenAway > available > off).
+- The proxy (`src/proxy.ts` + `src/lib/supabase/session.ts`) handles legacy redirects (307), sends signed-out `/api/*` requests a 401 JSON, honours a safe `?next=`, and never signs anyone out because of a Supabase outage (layout gates show an error state instead).
+- Server-only modules (`src/lib/supabase/admin.ts`, `getServerEnv()`) throw if imported in the browser (runtime check; the `server-only` package is not installed).
+
+UI shell
+- `(app)` layout renders `<ProfileProvider profile={profile}><AppShell>{children}</AppShell></ProfileProvider>`; every page renders `<AppHeader title=… />` (the page's only `h1`). Use `useProfile()` for the current member.
+- Text colours: `--text-secondary #A3A3B8`, `--text-dim #8A8AA3`; use `--sffd-red-text #FF4D4D` for red **text** (keep `#D32F2F` for fills). Stagger animation classes are `stagger-1..4`.
+- Sign-out sequence: `await unsubscribeFromPush(sb)`, `await clearAppCaches()` (from `@/lib/push/client`), clear offline snapshots, then `sb.auth.signOut({ scope: 'local' })`.
+- After marking alerts read call `announceNotificationsChanged()` (from `@/hooks/useUnreadCount`).
+- Push payload sent by the server: JSON `{ title, body, url, tag? }` (`url` must be a same-origin path; chat tag `message:<shiftId>:<senderId>`).
