@@ -23,7 +23,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/api', () => ({ getMyProfile: mocks.getMyProfile }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: mocks.createClient }))
-vi.mock('next/navigation', () => ({ redirect: mocks.redirect }))
+// unstable_rethrow only rethrows Next.js control-flow errors; a no-op is enough here.
+vi.mock('next/navigation', () => ({ redirect: mocks.redirect, unstable_rethrow: () => {} }))
 
 const ME = '11111111-1111-4111-8111-111111111111'
 
