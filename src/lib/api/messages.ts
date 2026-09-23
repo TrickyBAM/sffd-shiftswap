@@ -2,7 +2,7 @@
 // request on it or covers it (ARCHITECTURE §6.1 "messages", §6.3).
 
 import type { Message } from '@/lib/types/database'
-import { assertUuid, callRpc, clampLimit, resolveUserId, runQuery, runList, type Sb } from './core'
+import { assertUuid, callRpc, clampLimit, resolveUserId, runList, type Sb } from './core'
 
 /**
  * The conversation between me and `otherId` about one shift, oldest first
@@ -49,20 +49,29 @@ export async function markThreadRead(sb: Sb, shiftId: string, otherId: string): 
 }
 
 /**
- * Number of unread messages sent to me — all of them, or one shift's. Pass
- * `userId` when known to skip a session lookup.
+ * Unread messages to me on one shift, counted per sender — for the poster's
+ * thread picker ("Mike Lee · 2 new"). Pass `userId` when known to skip a
+ * session lookup.
  */
-export async function countUnreadMessages(
+export async function unreadMessagesBySender(
   sb: Sb,
-  options: { shiftId?: string | null; userId?: string | null } = {},
-): Promise<number> {
+  shiftId: string,
+  options: { userId?: string | null } = {},
+): Promise<Record<string, number>> {
+  const shift = assertUuid(shiftId, 'shift')
   const me = await resolveUserId(sb, options.userId)
-  let query = sb
-    .from('messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('recipient_id', me)
-    .is('read_at', null)
-  if (options.shiftId) query = query.eq('shift_id', assertUuid(options.shiftId, 'shift'))
-  const { count } = await runQuery<null>(query)
-  return count ?? 0
+  const rows = await runList<Pick<Message, 'sender_id'>>(
+    sb
+      .from('messages')
+      .select('sender_id')
+      .eq('shift_id', shift)
+      .eq('recipient_id', me)
+      .is('read_at', null)
+      .limit(500),
+  )
+  const counts: Record<string, number> = {}
+  for (const { sender_id } of rows) {
+    if (sender_id) counts[sender_id] = (counts[sender_id] ?? 0) + 1
+  }
+  return counts
 }

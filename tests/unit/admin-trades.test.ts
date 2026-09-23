@@ -1,6 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// The screen's one shift query is listAdminShifts() from src/lib/api (CC-5);
+// fetchAllTrades is tested against a stand-in for it.
+const mocks = vi.hoisted(() => ({ listAdminShifts: vi.fn() }))
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
+  listAdminShifts: mocks.listAdminShifts,
+}))
+
 import { hasStarted, swapText, tradeStatus, tradesCsv, TRADE_CSV_HEADERS } from '@/app/(app)/admin/trades/_lib/present'
-import { isTradeScope } from '@/app/(app)/admin/trades/_lib/query'
+import {
+  DEFAULT_TRADE_FILTERS,
+  fetchAllTrades,
+  isTradeScope,
+  tradeListOptions,
+  TRADE_PAGE_SIZE,
+} from '@/app/(app)/admin/trades/_lib/query'
+import type { Sb } from '@/lib/api'
 import { parseCsv } from '@/lib/roster/csv'
 import type { Shift } from '@/lib/types/database'
 
@@ -100,5 +116,79 @@ describe('isTradeScope', () => {
     expect(isTradeScope('all')).toBe(true)
     expect(isTradeScope('nope')).toBe(false)
     expect(isTradeScope(null)).toBe(false)
+  })
+})
+
+describe('tradeListOptions', () => {
+  it('maps the default filters onto listAdminShifts', () => {
+    expect(tradeListOptions(DEFAULT_TRADE_FILTERS)).toEqual({
+      scope: 'upcoming',
+      withReturnLegs: true,
+      from: null,
+      to: null,
+      station: null,
+      battalion: null,
+      member: '',
+      offset: 0,
+      limit: TRADE_PAGE_SIZE,
+      now: undefined,
+    })
+  })
+
+  it('passes dates, place, member name and paging; a station wins over its battalion', () => {
+    const now = new Date('2026-09-23T20:00:00Z')
+    const options = tradeListOptions(
+      { scope: 'all', from: '2026-10-01', to: '2026-10-31', battalion: 9, station: 19, member: 'mike' },
+      { offset: 50, limit: 25, now },
+    )
+    expect(options).toMatchObject({
+      scope: 'all',
+      from: '2026-10-01',
+      to: '2026-10-31',
+      station: 19,
+      battalion: null,
+      member: 'mike',
+      offset: 50,
+      limit: 25,
+      now,
+    })
+    expect(tradeListOptions({ ...DEFAULT_TRADE_FILTERS, battalion: 9 }).battalion).toBe(9)
+  })
+
+  it('treats a half-typed date as no limit instead of an error', () => {
+    const options = tradeListOptions({ ...DEFAULT_TRADE_FILTERS, from: '2026-1', to: '' })
+    expect(options.from).toBeNull()
+    expect(options.to).toBeNull()
+  })
+})
+
+describe('fetchAllTrades', () => {
+  const sb = {} as Sb
+  beforeEach(() => {
+    mocks.listAdminShifts.mockReset()
+  })
+
+  it('reads 200 rows at a time until it has them all, merging the return legs', async () => {
+    const rows = Array.from({ length: 450 }, (_, i) => shift({ id: `id-${i}` }))
+    const leg = shift({ id: 'leg-1', date: '2026-11-02' })
+    mocks.listAdminShifts.mockImplementation(async (_sb: Sb, options: { offset: number; limit: number }) => ({
+      items: rows.slice(options.offset, options.offset + options.limit),
+      total: rows.length,
+      returnLegs: options.offset === 200 ? new Map([['leg-1', leg]]) : new Map(),
+    }))
+    const all = await fetchAllTrades(sb, { ...DEFAULT_TRADE_FILTERS, scope: 'past' }, NOW)
+    expect(all.items).toHaveLength(450)
+    expect(all.total).toBe(450)
+    expect(all.returnLegs.get('leg-1')).toBe(leg)
+    expect(mocks.listAdminShifts).toHaveBeenCalledTimes(3)
+    expect(mocks.listAdminShifts.mock.calls.map((call) => call[1].offset)).toEqual([0, 200, 400])
+    expect(mocks.listAdminShifts.mock.calls[0][1]).toMatchObject({ scope: 'past', limit: 200, now: NOW, withReturnLegs: true })
+  })
+
+  it('stops after one short page', async () => {
+    mocks.listAdminShifts.mockResolvedValue({ items: [shift()], total: 1, returnLegs: new Map() })
+    const all = await fetchAllTrades(sb, DEFAULT_TRADE_FILTERS, NOW)
+    expect(all.items).toHaveLength(1)
+    expect(mocks.listAdminShifts).toHaveBeenCalledTimes(1)
   })
 })

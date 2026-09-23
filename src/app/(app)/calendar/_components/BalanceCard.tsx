@@ -83,15 +83,12 @@ export function BalanceCard({ userId, reloadToken }: BalanceCardProps) {
         </div>
       ) : state.stats ? (
         <>
+          {/* Same names and colours as Trades › Balances and Profile (UX-11): the counts
+              are plain, the balance is green when ahead and orange when behind. */}
           <dl className="grid grid-cols-3 gap-2">
-            <Stat label="Covered" value={state.stats.covered} className="text-accent-green" />
-            <Stat label="Given" value={state.stats.given} className="text-accent-orange" />
-            <Stat
-              label="Balance"
-              value={state.stats.balance}
-              signed
-              className={state.stats.balance < 0 ? 'text-accent-yellow' : 'text-accent-blue'}
-            />
+            <Stat label="Covered" value={state.stats.covered} />
+            <Stat label="Given" value={state.stats.given} />
+            <Stat label="Balance" value={state.stats.balance} signed className={balanceClass(state.stats.balance)} />
           </dl>
           <p className="mt-3 font-semibold text-fg">{balanceHeadline(state.stats)}</p>
           <p className="text-sm text-fg-muted">{balanceDetail(state.stats)}</p>
@@ -117,12 +114,19 @@ export function BalanceCard({ userId, reloadToken }: BalanceCardProps) {
   )
 }
 
+/** Balance colour used across the app: green ahead, orange behind, plain when even. */
+function balanceClass(balance: number): string | undefined {
+  if (balance > 0) return 'text-accent-green'
+  if (balance < 0) return 'text-accent-orange'
+  return undefined
+}
+
 function Stat({ label, value, signed = false, className }: { label: string; value: number; signed?: boolean; className?: string }) {
   const text = signed && value > 0 ? `+${value}` : String(value)
   return (
     <div className="rounded-xl border border-line bg-elevated px-2 py-2.5 text-center">
       <dt className="text-xs font-medium uppercase tracking-wide text-fg-muted">{label}</dt>
-      <dd className={cn('font-display text-3xl leading-tight', className)}>{text}</dd>
+      <dd className={cn('font-display text-3xl leading-tight text-fg', className)}>{text}</dd>
     </div>
   )
 }

@@ -220,7 +220,9 @@ describe('auth.users → profiles trigger', () => {
     expect(p.full_name).toHaveLength(80)
     expect(p.full_name).toBe(long.slice(0, 80))
 
-    const bare = await t.one<{ id: string }>(`insert into auth.users (email) values (null) returning id`)
+    const bare = await t.one<{ id: string }>(
+      `insert into auth.users (email, email_confirmed_at) values (null, now()) returning id`,
+    )
     const q = await t.one(`select email, full_name from public.profiles where id = $1`, [bare.id])
     expect(q).toEqual({ email: '', full_name: '' })
   })

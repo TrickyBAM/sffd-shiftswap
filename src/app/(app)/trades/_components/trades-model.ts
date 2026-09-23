@@ -2,11 +2,19 @@
 // shift, pairing SwapMatch legs, history rows and balance lines — all worded
 // from the signed-in member's point of view. No I/O, so it is unit-tested
 // (tests/unit/trades-model.test.ts).
+//
+// Words and colours (UX-11), the same on every screen:
+//   Covered     shifts you worked for someone
+//   Given       shifts someone worked for you
+//   Balance     Covered − Given: ahead green, behind yellow (BALANCE_TONE)
+//   Outstanding your open posts
+//   Confirmed   a trade that's on (green); my open post is orange
 
-import type { RequestWithShift } from '@/lib/api'
+import type { RequestWithShift, UndoneTrade } from '@/lib/api'
+import { plural } from '@/lib/format'
 import { formatDate, type Ymd } from '@/lib/sffd/dates'
 import { stationLabel } from '@/lib/sffd/stations'
-import type { AcceptLimit, LedgerRow, MyStats, Shift, ShiftRequest } from '@/lib/types/database'
+import type { LedgerRow, MyStats, Shift, ShiftRequest } from '@/lib/types/database'
 
 // ---------------------------------------------------------------------------
 // Tabs
@@ -46,6 +54,11 @@ export interface TradesData {
   historyShifts: Shift[]
   /** My declined / withdrawn / cancelled requests, newest first. */
   closedRequests: RequestWithShift[]
+  /**
+   * Confirmed trades that were undone by agreement or voided (either side),
+   * newest first. Missing in offline snapshots saved before it was added.
+   */
+  undone?: UndoneTrade[]
   ledger: LedgerRow[]
   stats: MyStats
   /** ISO time the data was loaded. */
@@ -65,25 +78,6 @@ export function hasStarted(shift: Pick<Shift, 'starts_at'>, nowMs: number): bool
 /** "Wed, Sep 30 · 24-Hour · Station 19" */
 export function shiftLine(shift: Pick<Shift, 'date' | 'shift_type' | 'station'>): string {
   return `${formatDate(shift.date, 'weekday')} · ${shift.shift_type} · ${stationLabel(shift.station)}`
-}
-
-/** "1 request" / "3 requests" */
-export function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`
-}
-
-/** Who may request, in plain words ('' for anyone). */
-export function acceptLimitLabel(limit: AcceptLimit): string {
-  switch (limit) {
-    case 'station':
-      return 'Same station only'
-    case 'battalion':
-      return 'Same battalion only'
-    case 'division':
-      return 'Same division only'
-    default:
-      return ''
-  }
 }
 
 /** True for either leg of a SwapMatch or an original that offers return dates. */
@@ -169,6 +163,37 @@ export function activeRequests(myRequests: readonly RequestWithShift[], nowMs: n
     .sort(byShiftDate)
 }
 
+/**
+ * The SwapMatch part of my own request, from my side (UX-01): the poster
+ * works MY shift on the return date, and I'm off that day. Same wording as
+ * the request sheet and the trade page.
+ */
+export function myReturnDateLine(posterName: string, returnDate: Ymd): string {
+  return `In return, ${posterName || 'the poster'} works your ${formatDate(returnDate, 'weekday')} shift.`
+}
+
+/**
+ * Cancel requests I can still answer (TF-5): the trade's dates haven't
+ * started. Only the original leg carries the request and the cancel_requests
+ * list checks only its start, so a SwapMatch whose return leg has started is
+ * dropped here: its return leg is no longer among my upcoming `confirmed`
+ * legs. Agreeing would be refused then; the request shows as expired on the
+ * Confirmed tab instead.
+ */
+export function openCancelRequests(
+  cancelRequests: readonly Shift[],
+  confirmed: readonly Shift[],
+  nowMs: number,
+): Shift[] {
+  const upcoming = new Map(confirmed.map((s) => [s.id, s]))
+  return cancelRequests.filter((shift) => {
+    if (hasStarted(shift, nowMs)) return false
+    if (!shift.return_leg_id) return true
+    const leg = upcoming.get(shift.return_leg_id)
+    return Boolean(leg && leg.status === 'covered' && !hasStarted(leg, nowMs))
+  })
+}
+
 /** Number of things on the Pending tab that need my answer. */
 export function pendingActionCount(groups: readonly IncomingGroup[], cancelRequests: readonly Shift[]): number {
   return groups.length + cancelRequests.length
@@ -188,15 +213,22 @@ export interface TradeGroup {
   partnerName: string
   /** Who asked to cancel, if anyone (stored on the original leg). */
   cancelRequestedBy: string | null
+  /**
+   * One of the trade's dates has already started: a SwapMatch whose other leg
+   * isn't upcoming any more (or any leg started by `nowMs`). Members can't
+   * cancel it then, so a waiting cancel request has expired (TF-5).
+   */
+  started: boolean
   /** Earliest leg date. */
   date: Ymd
 }
 
 /**
  * Pairs SwapMatch legs (original + return leg) into one trade; ordinary trades
- * are one leg each. Soonest first.
+ * are one leg each. Soonest first. `shifts` are my upcoming covered legs, so a
+ * SwapMatch with a leg missing has a leg that already started.
  */
-export function groupTrades(shifts: readonly Shift[], me: string): TradeGroup[] {
+export function groupTrades(shifts: readonly Shift[], me: string, nowMs?: number): TradeGroup[] {
   const byId = new Map<string, Shift[]>()
   for (const s of shifts) {
     const key = s.return_leg_of ?? s.id
@@ -210,25 +242,57 @@ export function groupTrades(shifts: readonly Shift[], me: string): TradeGroup[] 
   const groups: TradeGroup[] = []
   for (const [id, legs] of byId) {
     legs.sort(byShiftDate)
-    const original = legs.find((l) => l.id === id) ?? legs[0]
+    const original = legs.find((l) => l.id === id)
+    const legMissing = !original || Boolean(original.return_leg_id && !legs.some((l) => l.id === original.return_leg_id))
     groups.push({
       id,
       legs,
       isSwap: legs.some(isSwapShift),
-      partnerName: partnerOf(original, me).name,
+      partnerName: partnerOf(original ?? legs[0], me).name,
       cancelRequestedBy: legs.find((l) => l.cancel_requested_by)?.cancel_requested_by ?? null,
+      started: legMissing || (nowMs !== undefined && legs.some((l) => hasStarted(l, nowMs))),
       date: legs[0].date,
     })
   }
   return groups.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
 }
 
-/** Status line for a pending cancel request on a trade ('' when none). */
-export function cancelStatus(cancelRequestedBy: string | null, me: string, partnerName: string): string {
-  if (!cancelRequestedBy) return ''
-  return cancelRequestedBy === me
-    ? `You asked to cancel — waiting on ${partnerName}`
-    : `${partnerName} asked to cancel — your answer is needed`
+export interface CancelInfo {
+  /** Short badge text. */
+  badge: string
+  tone: 'yellow' | 'gray'
+  /** One plain sentence under the badges. */
+  text: string
+  /** I asked and it can no longer be answered: offer "Withdraw" here (TF-5). */
+  canWithdraw: boolean
+}
+
+/** A waiting cancel request on a trade, from my side (null when there is none). */
+export function cancelInfo(
+  trade: Pick<TradeGroup, 'cancelRequestedBy' | 'started' | 'partnerName'>,
+  me: string,
+): CancelInfo | null {
+  const { cancelRequestedBy: by, started, partnerName } = trade
+  if (!by) return null
+  const mine = by === me
+  if (started) {
+    return {
+      badge: 'Cancel request expired',
+      tone: 'gray',
+      text: mine
+        ? "A date in this trade has started, so it can't be cancelled in the app now. Withdraw your request, and ask an admin if the trade needs to be voided."
+        : `${partnerName} asked to cancel, but a date in this trade has started, so it can't be cancelled in the app now. You don't need to answer.`,
+      canWithdraw: mine,
+    }
+  }
+  return mine
+    ? { badge: 'Cancel requested', tone: 'yellow', text: `You asked to cancel. Waiting on ${partnerName}.`, canWithdraw: false }
+    : {
+        badge: 'Needs your answer',
+        tone: 'yellow',
+        text: `${partnerName} asked to cancel. Open the trade to agree or decline.`,
+        canWithdraw: false,
+      }
 }
 
 // ---------------------------------------------------------------------------
@@ -313,9 +377,57 @@ function requestHistoryItem(request: RequestWithShift): HistoryItem {
   }
 }
 
+function sameInstant(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false
+  const t = Date.parse(a)
+  return Number.isFinite(t) && t === Date.parse(b)
+}
+
 /**
- * The History tab: my started/cancelled shifts plus my closed requests (and
- * pending ones that can no longer be answered), latest date first.
+ * A confirmed trade that was undone (TF-4), from my side, e.g.
+ *   title  "Trade with Ana Cruz was cancelled by agreement"
+ *   detail "Ana Cruz was going to work your shift. You were going to work Ana
+ *           Cruz's Mon, Oct 12 shift in return; that's cancelled too."
+ */
+export function undoneHistoryItem(undone: UndoneTrade): HistoryItem {
+  const { shift, returnLeg, role, partnerName: partner, how, note } = undone
+  const title =
+    how === 'agreed'
+      ? `Trade with ${partner} was cancelled by agreement`
+      : how === 'voided'
+        ? `An admin voided your trade with ${partner}`
+        : `Trade with ${partner} was cancelled`
+  const parts = [role === 'poster' ? `${partner} was going to work your shift.` : `You were going to work ${partner}'s shift.`]
+  if (returnLeg) {
+    const day = formatDate(returnLeg.date, 'weekday')
+    parts.push(
+      role === 'poster'
+        ? `You were going to work ${partner}'s ${day} shift in return; that's cancelled too.`
+        : `${partner} was going to work your ${day} shift in return; that's cancelled too.`,
+    )
+  }
+  if (note) parts.push(`Reason: “${note}”`)
+  return {
+    key: `undone:${undone.request.id}`,
+    shiftId: shift.id,
+    date: shift.date,
+    shiftType: shift.shift_type,
+    station: shift.station,
+    title,
+    detail: parts.join(' '),
+    tone: 'cancelled',
+    badge: how === 'voided' ? 'Voided' : 'Cancelled',
+    isSwap: Boolean(returnLeg || undone.request.return_date),
+    at: undone.undoneAt,
+  }
+}
+
+/**
+ * The History tab: my started/cancelled shifts, trades that were undone, and
+ * my closed requests (and pending ones that can no longer be answered),
+ * latest date first. An undone trade is one row for each member (TF-4): the
+ * request it closed, its cancelled return leg and (for a void after the
+ * start) the cancelled original aren't listed again on their own.
  */
 export function buildHistory(
   historyShifts: readonly Shift[],
@@ -323,14 +435,28 @@ export function buildHistory(
   myRequests: readonly RequestWithShift[],
   me: string,
   nowMs: number,
+  undone: readonly UndoneTrade[] = [],
 ): HistoryItem[] {
-  const items: HistoryItem[] = historyShifts.map((s) => shiftHistoryItem(s, me))
+  const coveredRequests = new Set(undone.map((u) => u.request.id))
+  const coveredShifts = new Set<string>()
+  for (const u of undone) {
+    if (u.returnLeg) coveredShifts.add(u.returnLeg.id)
+    if (u.shift.status === 'cancelled' && sameInstant(u.shift.cancelled_at, u.undoneAt)) coveredShifts.add(u.shift.id)
+  }
+
+  const items: HistoryItem[] = historyShifts.filter((s) => !coveredShifts.has(s.id)).map((s) => shiftHistoryItem(s, me))
+  const seenUndone = new Set<string>()
+  for (const u of undone) {
+    if (seenUndone.has(u.request.id)) continue
+    seenUndone.add(u.request.id)
+    items.push(undoneHistoryItem(u))
+  }
   const seen = new Set<string>()
   const stale = myRequests.filter(
     (r) => r.status === 'pending' && r.shift && (r.shift.status !== 'open' || hasStarted(r.shift, nowMs)),
   )
   for (const r of [...closedRequests, ...stale]) {
-    if (!r.shift || seen.has(r.id)) continue
+    if (!r.shift || seen.has(r.id) || coveredRequests.has(r.id)) continue
     seen.add(r.id)
     items.push(requestHistoryItem(r))
   }
@@ -383,13 +509,31 @@ export function signed(n: number): string {
   return '0'
 }
 
-/** One-sentence summary of my overall balance. */
+/** One-sentence summary of my overall balance (same words as Profile). */
 export function balanceSummary(stats: Pick<MyStats, 'covered' | 'given'>): string {
   const net = stats.covered - stats.given
   if (stats.covered === 0 && stats.given === 0) return 'No trades yet.'
-  if (net > 0) return `You've covered ${plural(net, 'more shift')} than you've given away.`
-  if (net < 0) return `You've given away ${plural(-net, 'more shift')} than you've covered.`
-  return "You're even — you've covered as many shifts as you've given away."
+  if (net > 0) return `You've covered ${plural(net, 'more shift')} than you've given.`
+  if (net < 0) return `You've given ${plural(-net, 'more shift')} than you've covered.`
+  return "You're even: you've covered as many shifts as you've given."
+}
+
+/**
+ * The one colour map for balances (UX-11), used by Trades ▸ Balances and the
+ * Profile stats: ahead (Covered > Given) green, behind yellow, even plain.
+ * Orange is left for "my open post", as on the Calendar legend.
+ */
+export const BALANCE_TONE = {
+  ahead: { text: 'text-accent-green', bg: 'bg-accent-green' },
+  behind: { text: 'text-accent-yellow', bg: 'bg-accent-yellow' },
+  even: { text: 'text-fg', bg: 'bg-raised' },
+} as const
+
+/** Text colour class for a balance (Covered − Given). */
+export function balanceToneClass(balance: number): string {
+  if (balance > 0) return BALANCE_TONE.ahead.text
+  if (balance < 0) return BALANCE_TONE.behind.text
+  return BALANCE_TONE.even.text
 }
 
 /** The most recent trade with a partner among the loaded shifts, for a "last trade" link. */

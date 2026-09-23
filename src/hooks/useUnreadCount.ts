@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { unreadCount } from '@/lib/api'
 import { createClient } from '@/lib/supabase/client'
 import { useRealtimeRefetch } from './useRealtimeRefetch'
 
@@ -16,16 +17,10 @@ export function announceNotificationsChanged(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED_EVENT))
 }
 
-/** Head-only count of unread notifications, or null if it couldn't be read. Never throws. */
+/** Head-only count of unread notifications (src/lib/api), or null if it couldn't be read. Never throws. */
 async function countUnread(client: SupabaseClient | undefined, userId: string): Promise<number | null> {
   try {
-    const sb = client ?? createClient()
-    const { count, error } = await sb
-      .from('notifications')
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .is('read_at', null)
-    return error ? null : (count ?? 0)
+    return await unreadCount(client ?? createClient(), { userId })
   } catch {
     // Network failure or Supabase not configured.
     return null

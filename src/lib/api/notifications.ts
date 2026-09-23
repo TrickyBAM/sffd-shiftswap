@@ -67,11 +67,14 @@ export function notificationCursorFilter(cursor: NotificationCursor): string {
   return `created_at.lt.${at},and(created_at.eq.${at},id.lt.${id})`
 }
 
-/** Number of my unread notifications (a head-only count). */
-export async function unreadCount(sb: Sb): Promise<number> {
-  const { count } = await runQuery<null>(
-    sb.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null),
-  )
+/**
+ * Number of my unread notifications (a head-only count). RLS already limits
+ * it to my rows; pass `userId` when known so the query can use the index.
+ */
+export async function unreadCount(sb: Sb, options: { userId?: string | null } = {}): Promise<number> {
+  let query = sb.from('notifications').select('id', { count: 'exact', head: true }).is('read_at', null)
+  if (options.userId) query = query.eq('user_id', assertUuid(options.userId, 'user'))
+  const { count } = await runQuery<null>(query)
   return count ?? 0
 }
 

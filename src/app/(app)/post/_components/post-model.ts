@@ -5,7 +5,7 @@
 
 import type { PostShiftInput } from '@/lib/api'
 import type { AppErrorCode } from '@/lib/errors'
-import type { ScheduleDay } from '@/lib/schedule/effective'
+import { PM_GIVEN_AWAY_HOURS, type ScheduleDay } from '@/lib/schedule/effective'
 import { addDays, diffDays, formatDate, isStarted, isYmd, monthOf, type Ymd } from '@/lib/sffd/dates'
 import { SHIFT_TYPES, type ShiftType } from '@/lib/sffd/shift-types'
 import {
@@ -62,6 +62,7 @@ export type DateBlock =
   | 'started'
   | 'too-far'
   | 'posted'
+  | 'pm-given-away'
   | 'given-away'
   | 'covering'
   | 'not-your-day'
@@ -72,6 +73,7 @@ export const DATE_BLOCK_MESSAGE: Readonly<Record<DateBlock, string>> = Object.fr
   started: 'That shift has already started.',
   'too-far': `Shifts can be posted up to ${POST_WINDOW_DAYS} days ahead.`,
   posted: "You've already posted that shift.",
+  'pm-given-away': `You already gave away that day's PM and still work ${PM_GIVEN_AWAY_HOURS}, so it can't be posted again.`,
   'given-away': 'Someone is already covering you that day.',
   covering: "You're covering someone that day. Picked-up shifts can't be traded again.",
   'not-your-day': "That isn't one of your tour days.",
@@ -84,6 +86,7 @@ export const DATE_BLOCK_SHORT: Readonly<Record<DateBlock, string>> = Object.free
   started: 'already started',
   'too-far': 'too far ahead',
   posted: 'already posted',
+  'pm-given-away': 'PM already traded',
   'given-away': 'already traded',
   covering: "you're covering someone",
   'not-your-day': 'not your tour day',
@@ -93,7 +96,8 @@ export const DATE_BLOCK_SHORT: Readonly<Record<DateBlock, string>> = Object.free
  * Can I post `ymd`? null = yes (for at least the PM shift; see typeStarted()).
  * Mirrors post_shift: not started, at most 180 days out, one of my tour days
  * when I have a tour, and not already posted or traded. Picked-up days can't
- * be re-traded in v1.
+ * be re-traded in v1. A day whose PM I gave away is still a working day
+ * (0800–1600) but its shift is already traded, so it can't be posted either.
  */
 export function dateBlock(ymd: unknown, ctx: PostContext): DateBlock | null {
   if (!isYmd(ymd)) return 'invalid'
@@ -103,6 +107,7 @@ export function dateBlock(ymd: unknown, ctx: PostContext): DateBlock | null {
   if (ymd === ctx.today && isStarted(ymd, 'PM', ctx.now)) return 'started'
   const day = ctx.days.get(ymd)
   if (day?.openPost) return 'posted'
+  if (day?.pmGivenAway) return 'pm-given-away'
   if (day?.givenAway) return 'given-away'
   if (day?.pickedUp) return 'covering'
   if (ctx.tour != null && !tourWorks(ctx.tour, ymd)) return 'not-your-day'
@@ -174,7 +179,8 @@ export const RETURN_BLOCK_MESSAGE: Readonly<Record<ReturnBlock, string>> = Objec
  * Can I offer `ymd` as a return date? null = yes. It must be one of my days
  * off (I'd work their shift then), not the posted date, in the future for this
  * shift type and at most 180 days out. Days I've posted or traded away are out
- * too: confirming the swap would fail (POSTER_WORKS_RETURN_DAY).
+ * too: confirming the swap would fail (POSTER_WORKS_RETURN_DAY). A day whose
+ * PM I gave away counts as working (I still work 0800–1600).
  */
 export function returnDateBlock(
   ymd: unknown,

@@ -5,6 +5,7 @@ const updateSession = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/supabase/session', () => ({ updateSession }))
 
 import { config, proxy } from '@/proxy'
+import nextConfig from '../../next.config'
 
 const ORIGIN = 'https://shiftswap.test'
 
@@ -14,21 +15,15 @@ beforeEach(() => {
 })
 
 describe('proxy', () => {
-  it.each([
-    ['/dashboard', '/calendar'],
-    ['/shift-board', '/board'],
-    ['/post-shift', '/post'],
-    ['/notifications', '/alerts'],
-    ['/schedule-setup', '/profile'],
-    ['/dashboard/', '/calendar'],
-  ])('redirects legacy %s → %s', async (from, to) => {
-    const res = await proxy(new NextRequest(`${ORIGIN}${from}?x=1`))
-    expect(res.status).toBe(307)
-    expect(res.headers.get('location')).toBe(`${ORIGIN}${to}?x=1`)
-    expect(updateSession).not.toHaveBeenCalled()
+  it('delegates every request to updateSession (legacy redirects live in next.config.ts)', async () => {
+    for (const path of ['/calendar', '/dashboard']) {
+      const req = new NextRequest(`${ORIGIN}${path}`)
+      await proxy(req)
+      expect(updateSession).toHaveBeenLastCalledWith(req)
+    }
   })
 
-  it('delegates everything else to updateSession', async () => {
+  it('returns the response updateSession built', async () => {
     const req = new NextRequest(`${ORIGIN}/calendar`)
     const res = await proxy(req)
     expect(updateSession).toHaveBeenCalledWith(req)
@@ -41,5 +36,29 @@ describe('proxy', () => {
     for (const p of ['/sw.js', '/manifest.webmanifest', '/icons/icon-192.png', '/favicon.ico', '/_next/static/x.js', '/apple-icon.png', '/logo.svg']) {
       expect(re.test(p), p).toBe(false)
     }
+  })
+})
+
+describe('legacy redirects (next.config.ts, the only copy)', () => {
+  it.each([
+    ['/dashboard', '/calendar'],
+    ['/shift-board', '/board'],
+    ['/post-shift', '/post'],
+    ['/notifications', '/alerts'],
+    ['/schedule-setup', '/profile'],
+    ['/forgot-password', '/login'],
+    ['/reset-password', '/login'],
+    ['/verify-email', '/login'],
+    ['/auth/callback', '/login'],
+  ])('%s → %s (temporary)', async (source, destination) => {
+    const redirects = (await nextConfig.redirects?.()) ?? []
+    expect(redirects).toContainEqual({ source, destination, permanent: false })
+  })
+
+  it('serves /sw.js with the deploy version so open apps can spot a new deploy', async () => {
+    const headers = (await nextConfig.headers?.()) ?? []
+    const sw = headers.find((h) => h.source === '/sw.js')
+    expect(sw?.headers.find((h) => h.key === 'X-App-Version')?.value).toBe(nextConfig.env?.NEXT_PUBLIC_APP_VERSION)
+    expect(sw?.headers.find((h) => h.key === 'Cache-Control')?.value).toContain('no-store')
   })
 })

@@ -1,34 +1,14 @@
-// Pure helpers for /alerts: relative times, safe deep links and merging a
-// refreshed first page into the pages already on screen. Unit-tested in
+// Pure helpers for /alerts: safe deep links and merging a refreshed first page
+// into the pages already on screen. Relative times ("5 min ago") come from the
+// shared relativeTime() in src/lib/format.ts. Unit-tested in
 // tests/unit/trades-alerts.test.ts.
 
 import type { NotificationCursor } from '@/lib/api'
-import { diffDays, formatDate, formatTimePT, todayPT } from '@/lib/sffd/dates'
+import { formatDate, formatTimePT, todayPT } from '@/lib/sffd/dates'
 import type { Notification } from '@/lib/types/database'
 
 /** Alerts per page ("Load more" fetches the next one). */
 export const ALERTS_PAGE_SIZE = 30
-
-/**
- * "Just now", "5 min ago", "3 hr ago", "Yesterday", "4 days ago", "Sep 12",
- * "Dec 30, 2025". Calendar days are counted in Pacific time.
- */
-export function relativeTime(iso: string, nowMs: number): string {
-  const t = Date.parse(iso)
-  if (!Number.isFinite(t) || !Number.isFinite(nowMs)) return ''
-  const seconds = Math.max(0, (nowMs - t) / 1000)
-  if (seconds < 45) return 'Just now'
-  const minutes = Math.max(1, Math.round(seconds / 60))
-  if (minutes < 60) return `${minutes} min ago`
-  const hours = Math.floor(minutes / 60)
-  const then = todayPT(new Date(t))
-  const today = todayPT(new Date(nowMs))
-  const days = diffDays(then, today)
-  if (hours < 24 && days <= 1) return `${hours} hr ago`
-  if (days === 1) return 'Yesterday'
-  if (days < 7) return `${days} days ago`
-  return formatDate(then, then.slice(0, 4) === today.slice(0, 4) ? 'short' : 'medium')
-}
 
 /** Full date and time for a tooltip / datetime title: "Sep 23, 2026, 3:45 PM". */
 export function fullTimestamp(iso: string): string {

@@ -14,8 +14,9 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { Button, Card, EmptyState, ErrorState, Field, LoadingBlock, Select, cn } from '@/components/ui'
+import { relativeTime } from '@/lib/format'
 import { createClient } from '@/lib/supabase/client'
-import { formatInstant, timeAgo } from '../../_lib/format'
+import { formatInstant, withinLastWeek } from '../../_lib/format'
 import { usePagedList } from '../../_lib/usePagedList'
 import { ACTIVITY_FILTER_GROUPS, ACTIVITY_FILTER_VALUES, type ActivityKind } from '../_lib/describe'
 import { loadActivityPage, type ActivityItem } from '../_lib/load'
@@ -41,7 +42,9 @@ function ActivityRow({ item }: { item: ActivityItem }) {
         <span className="block text-sm font-medium text-fg">{line.text}</span>
         {line.detail ? <span className="mt-0.5 block text-sm text-fg-muted">{line.detail}</span> : null}
         <time dateTime={entry.created_at} title={formatInstant(entry.created_at)} className="mt-0.5 block text-xs text-fg-dim">
-          {timeAgo(entry.created_at)} · {formatInstant(entry.created_at)}
+          {withinLastWeek(entry.created_at)
+            ? `${relativeTime(entry.created_at)} · ${formatInstant(entry.created_at)}`
+            : formatInstant(entry.created_at)}
         </time>
       </span>
       {line.href ? <ChevronRight size={18} aria-hidden="true" className="mt-2.5 shrink-0 text-fg-dim" /> : null}

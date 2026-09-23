@@ -1,5 +1,7 @@
 'use client'
 
+// The balance colours shared with Trades ▸ Balances (UX-11).
+import { BALANCE_TONE, balanceToneClass } from '@/app/(app)/trades/_components/trades-model'
 import { Card, ErrorState, Skeleton } from '@/components/ui'
 import { cn } from '@/components/ui/cn'
 import { OfflineRibbon } from '@/components/OfflineRibbon'
@@ -90,12 +92,7 @@ function TradesCard({ stats }: { stats: MyStats }) {
             <p className="font-semibold text-fg">Balance</p>
             <p className="text-xs text-fg-dim">Covered − Given</p>
           </div>
-          <p
-            className={cn(
-              'font-display text-4xl leading-none',
-              balance > 0 ? 'text-accent-green' : balance < 0 ? 'text-accent-orange' : 'text-fg',
-            )}
-          >
+          <p className={cn('font-display text-4xl leading-none', balanceToneClass(balance))}>
             {formatSigned(balance)}
           </p>
         </div>
@@ -147,20 +144,20 @@ function ReciprocityBar({ covered, given }: { covered: number; given: number }) 
         className="flex h-3 gap-0.5 overflow-hidden rounded-full bg-raised"
       >
         {split && split.coveredPct > 0 ? (
-          <span className="h-full rounded-l-full bg-accent-green" style={{ width: `${split.coveredPct}%` }} />
+          <span className={cn('h-full rounded-l-full', BALANCE_TONE.ahead.bg)} style={{ width: `${split.coveredPct}%` }} />
         ) : null}
         {split && split.givenPct > 0 ? (
-          <span className="h-full flex-1 rounded-r-full bg-accent-orange" />
+          <span className={cn('h-full flex-1 rounded-r-full', BALANCE_TONE.behind.bg)} />
         ) : null}
       </div>
       <figcaption aria-hidden="true" className="mt-1.5 flex justify-between gap-3 text-xs text-fg-muted">
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-accent-green" />
+          <span className={cn('h-2 w-2 rounded-full', BALANCE_TONE.ahead.bg)} />
           Covered {covered}
         </span>
         <span className="inline-flex items-center gap-1.5">
           Given {given}
-          <span className="h-2 w-2 rounded-full bg-accent-orange" />
+          <span className={cn('h-2 w-2 rounded-full', BALANCE_TONE.behind.bg)} />
         </span>
       </figcaption>
     </figure>

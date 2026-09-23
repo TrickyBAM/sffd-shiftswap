@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react'
 import { Button, Field, Input, Select, useToast } from '@/components/ui'
+import { FormAlert } from '@/components/forms/FormAlert'
 import { StationPicker, TourPicker } from '@/components/pickers'
 import { updateMember } from '@/lib/api'
 import { toAppError } from '@/lib/errors'
@@ -109,7 +110,7 @@ export function MemberEditForm({ member, onSaved, onCancel }: MemberEditFormProp
         error={errors.tour}
       />
 
-      <Field label="Phone" required error={errors.phone} id={`${idBase}-phone`}>
+      <Field label="Phone" required hint="Include the area code." error={errors.phone} id={`${idBase}-phone`}>
         <Input
           type="tel"
           inputMode="tel"
@@ -136,11 +137,7 @@ export function MemberEditForm({ member, onSaved, onCancel }: MemberEditFormProp
         />
       </Field>
 
-      {formError ? (
-        <p role="alert" className="rounded-xl border border-sffd-red/30 bg-sffd-red/10 px-3 py-2 text-sm text-sffd-red-text">
-          {formError}
-        </p>
-      ) : null}
+      {formError ? <FormAlert>{formError}</FormAlert> : null}
 
       <div className="flex gap-2">
         <Button variant="secondary" onClick={onCancel} disabled={busy} className="flex-1">

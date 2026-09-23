@@ -6,7 +6,10 @@ import {
   describeFilters,
   describeLocation,
   effectiveRank,
+  initialBoardFilters,
   isAllLocations,
+  isScopeAllParam,
+  locationChanged,
   parseDateParam,
   stationOptions,
   toBoardApiFilters,
@@ -116,6 +119,30 @@ describe('parseDateParam', () => {
     expect(parseDateParam('2026-02-30')).toBeNull()
     expect(parseDateParam('10/14/2026')).toBeNull()
     expect(parseDateParam(null)).toBeNull()
+  })
+})
+
+describe('?scope=all', () => {
+  it('opens on every location with my rank and "only shifts I can take"', () => {
+    const defaults = defaultBoardFilters(member)
+    expect(isScopeAllParam('all')).toBe(true)
+    expect(isScopeAllParam('battalion')).toBe(false)
+    expect(isScopeAllParam(null)).toBe(false)
+    expect(initialBoardFilters(defaults, true)).toEqual({
+      division: null,
+      battalion: null,
+      station: null,
+      rank: 'Captain',
+      onlyEligible: true,
+    })
+    expect(initialBoardFilters(defaults, false)).toBe(defaults)
+  })
+
+  it('notices when the member picks another location', () => {
+    const f = defaultBoardFilters(member)
+    expect(locationChanged(f, withStation(f, 19))).toBe(true)
+    expect(locationChanged(f, withAllLocations(f))).toBe(true)
+    expect(locationChanged(f, { ...f, onlyEligible: false })).toBe(false)
   })
 })
 

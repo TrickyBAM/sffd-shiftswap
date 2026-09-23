@@ -25,7 +25,7 @@ export interface AsyncData<T> {
  * Loads data on the client and reloads it whenever `key` changes. The newest
  * request always wins; responses for an old key are ignored.
  *
- *   const members = useAsyncData(() => queryMembers(createClient(), filters), JSON.stringify(filters))
+ *   const members = useAsyncData(() => listMembers(createClient(), options), JSON.stringify(options))
  */
 export function useAsyncData<T>(load: () => Promise<T>, key: string): AsyncData<T> {
   const [nonce, setNonce] = useState(0)

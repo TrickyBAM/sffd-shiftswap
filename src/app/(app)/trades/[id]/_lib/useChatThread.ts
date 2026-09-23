@@ -6,13 +6,13 @@
 // thread picker.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { listMessages, markThreadRead, sendMessage } from '@/lib/api'
+import { listMessages, markThreadRead, sendMessage, unreadMessagesBySender } from '@/lib/api'
 import { toAppError, type AppError } from '@/lib/errors'
 import { createClient } from '@/lib/supabase/client'
 import type { Message } from '@/lib/types/database'
 import { announceNotificationsChanged } from '@/hooks/useUnreadCount'
 import { useRealtimeRefetch } from '@/hooks/useRealtimeRefetch'
-import { countBySender, unreadFrom } from './trade-model'
+import { unreadFrom } from './trade-model'
 
 export const MESSAGE_MAX = 1000
 
@@ -127,23 +127,17 @@ export function useUnreadBySender(
 
   const load = useCallback((): void => {
     if (!enabled) return
+    let sb: ReturnType<typeof createClient>
     try {
-      // Not in src/lib/api: a small read the thread picker needs (RLS: my own messages only).
-      createClient()
-        .from('messages')
-        .select('sender_id')
-        .eq('shift_id', shiftId)
-        .eq('recipient_id', me)
-        .is('read_at', null)
-        .limit(500)
-        .then(
-          ({ data, error }) =>
-            setCounts({ key, value: error ? {} : countBySender((data ?? []) as Pick<Message, 'sender_id'>[]) }),
-          () => setCounts({ key, value: {} }),
-        )
+      sb = createClient()
     } catch {
       // Supabase isn't configured: no badges.
+      return
     }
+    unreadMessagesBySender(sb, shiftId, { userId: me }).then(
+      (value) => setCounts({ key, value }),
+      () => setCounts({ key, value: {} }),
+    )
   }, [enabled, shiftId, me, key])
 
   useEffect(() => {

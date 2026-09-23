@@ -131,8 +131,33 @@ export default function PrivacyPage() {
 
         <Section title="Removing your account">
           <p>
-            To have your account removed, contact an admin and ask. Shift and trade records that
-            involve other members may be kept so their trade history stays accurate.
+            To have your account removed, ask a ShiftSwap admin (call, text or ask in person). When
+            they remove it:
+          </p>
+          <ul className="list-disc space-y-1.5 pl-5">
+            <li>
+              <span className="text-fg">Erased:</span> your phone number, email address and employee
+              ID, your link to the department roster, your alerts and the address your phone used to
+              receive them. Your calendar link stops working.
+            </li>
+            <li>
+              <span className="text-fg">Closed:</span> you can&apos;t sign in any more. Your open posts
+              come down and your pending requests are closed.
+            </li>
+            <li>
+              <span className="text-fg">Kept:</span> your name, rank, station and tour on the closed
+              account and on the shifts and trades you were part of, and the messages you exchanged
+              with other members, so their trade history and balances stay accurate. The log of
+              account and admin actions also stays, including when your account was removed and why.
+            </li>
+          </ul>
+          <p>
+            A confirmed trade that hasn&apos;t happened yet isn&apos;t cancelled automatically. Sort it
+            out with your partner and in TeleStaff first, or ask the admin to void it.
+          </p>
+          <p>
+            Your email is free again afterwards, so you can sign up later with the same address. That
+            starts a new account.
           </p>
           <p>If you turned on alerts, you can turn them off any time from your Profile.</p>
         </Section>

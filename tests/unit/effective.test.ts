@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { computeDay, computeDays, computeMonthDays, type ScheduleShift } from '@/lib/schedule/effective'
+import {
+  computeDay,
+  computeDays,
+  computeMonthDays,
+  dutyHours,
+  dutySummary,
+  type ScheduleShift,
+} from '@/lib/schedule/effective'
 import { tourDaysInRange } from '@/lib/sffd/tours'
 
 const ME = 'me-uuid'
@@ -167,5 +174,94 @@ describe('computeDays / computeDay', () => {
     })
     expect(d.working).toBe(false)
     expect(d.givenAway?.byName).toBe('Mike')
+  })
+})
+
+describe('giving away only the PM (TF-1)', () => {
+  // Tour 2 works 2026-10-03; I gave Mike the PM (1600–0800) and still work 0800–1600.
+  const pm = shift({
+    id: 'pm1',
+    date: '2026-10-03',
+    shift_type: 'PM',
+    status: 'covered',
+    coverer_id: MIKE,
+    coverer_name: 'Mike Lee',
+  })
+
+  it('keeps the day working, flags the PM and offers no open shifts', () => {
+    const d = computeDay({
+      tour: TOUR,
+      userId: ME,
+      ymd: '2026-10-03',
+      myShifts: [pm],
+      boardCounts: { '2026-10-03': 4 },
+    })
+    expect(d).toMatchObject({
+      base: true,
+      working: true,
+      givenAway: { shiftId: 'pm1', shiftType: 'PM', byId: MIKE, byName: 'Mike Lee' },
+      pmGivenAway: { shiftId: 'pm1', shiftType: 'PM', byName: 'Mike Lee' },
+      availableCount: 0,
+      tone: 'working',
+    })
+    expect(dutyHours(d)).toBe('0800–1600')
+    expect(dutySummary(d)).toBe('You work 0800–1600 · PM covered by Mike Lee')
+    expect(dutySummary(d, { past: true })).toBe('You worked 0800–1600 · PM covered by Mike Lee')
+  })
+
+  it('a 24-Hour give-away still frees the whole day', () => {
+    const d = computeDay({
+      tour: TOUR,
+      userId: ME,
+      ymd: '2026-10-03',
+      myShifts: [{ ...pm, shift_type: '24-Hour' }],
+      boardCounts: { '2026-10-03': 4 },
+    })
+    expect(d).toMatchObject({ working: false, pmGivenAway: null, availableCount: 4, tone: 'givenAway' })
+    expect(dutyHours(d)).toBeNull()
+    expect(dutySummary(d)).toBe('Off · 24-Hour covered by Mike Lee')
+  })
+
+  it('a SwapMatch PM leg stays purple but the day is still worked', () => {
+    const d = computeDay({ tour: TOUR, userId: ME, ymd: '2026-10-03', myShifts: [{ ...pm, return_leg_id: 'leg' }] })
+    expect(d).toMatchObject({ working: true, swap: true, tone: 'swap', pmGivenAway: { isSwap: true } })
+  })
+
+  it('a member with no tour who gave away a PM still works the day shift', () => {
+    const d = computeDay({ tour: null, userId: ME, ymd: '2026-10-03', myShifts: [pm] })
+    expect(d).toMatchObject({ base: false, working: true, pmGivenAway: { byName: 'Mike Lee' } })
+  })
+})
+
+describe('dutyHours / dutySummary', () => {
+  const day = (myShifts: ScheduleShift[], ymd: string, tour: number | null = TOUR) =>
+    computeDay({ tour, userId: ME, ymd, myShifts })
+
+  it('my own tour day is a 24-hour shift', () => {
+    const d = day([], '2026-09-23')
+    expect(dutyHours(d)).toBe('0800–0800')
+    expect(dutySummary(d)).toBe('You work 0800–0800')
+  })
+
+  it('pickups show their own hours and who I cover', () => {
+    const pickedPm = shift({
+      id: 'p',
+      date: '2026-09-24',
+      poster_id: ANA,
+      poster_name: 'Ana Cruz',
+      coverer_id: ME,
+      status: 'covered',
+      shift_type: 'PM',
+    })
+    expect(dutyHours(day([pickedPm], '2026-09-24'))).toBe('1600–0800')
+    expect(dutySummary(day([pickedPm], '2026-09-24'))).toBe('You work 1600–0800 · covering Ana Cruz')
+    const picked24 = { ...pickedPm, shift_type: '24-Hour' }
+    expect(dutySummary(day([picked24], '2026-09-24'), { past: true })).toBe('You worked 0800–0800 · covering Ana Cruz')
+  })
+
+  it('a plain day off has no line', () => {
+    const d = day([], '2026-09-24')
+    expect(dutyHours(d)).toBeNull()
+    expect(dutySummary(d)).toBeNull()
   })
 })

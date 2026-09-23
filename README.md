@@ -9,7 +9,8 @@ ShiftSwap is an **unofficial coordination tool**. TeleStaff is still the
 official schedule, and every trade still needs approval the normal SFFD way.
 Every member acknowledges this once, the first time they use the app.
 
-- Live app: <https://sffd-shiftswap.vercel.app>
+- Live app: <https://sffd-shiftswap.vercel.app> (v1, deployed from the
+  `release/v1` branch with the Vercel CLI)
 - Built for phones. Most members install it on the home screen (iPhone or Android).
 
 ## Features
@@ -43,8 +44,8 @@ Every member acknowledges this once, the first time they use the app.
 - **Works offline.** When there is no signal, the app shows the last calendar,
   board and trades it saw, with a yellow "Offline snapshot" ribbon.
 - **Admin tools.** Approvals, members (edit, suspend, make admin, reset
-  password), roster CSV upload, trade oversight (cancel posts, void trades) and
-  an activity log.
+  password, remove an account when a member asks), roster CSV upload, trade
+  oversight (take down posts, void trades, CSV export) and an activity log.
 
 ## Tech stack
 
@@ -57,7 +58,7 @@ Every member acknowledges this once, the first time they use the app.
 | Push notifications | Web Push (`web-push`, VAPID keys) and a service worker (`public/sw.js`) |
 | Hosting | Vercel. The database is a Supabase project added through the Vercel Marketplace. |
 | Tests | Vitest. Database tests run the real migrations in PGlite (Postgres in WebAssembly), so Docker is not needed. |
-| CI | GitHub Actions: lint, typecheck, tests and build on every push and pull request |
+| CI | GitHub Actions (`.github/workflows/ci.yml`): lint, typecheck, tests and build on every push to `main` or `release/**` and on every pull request |
 
 `docs/ARCHITECTURE.md` is the full design and build contract.
 
@@ -95,6 +96,7 @@ notifications in the browser.
 | `node scripts/db/make-admin.mjs <email>` | Make an existing member an approved admin (for the very first admin; after that, use Admin ▸ Members) |
 | `node scripts/db/set-app-config.mjs key=value` | Set database settings, e.g. the push webhook (see `docs/DEPLOY.md`) |
 | `node scripts/smoke/live-smoke.mjs` | End-to-end smoke test against the real database with throwaway members, cleaned up afterwards |
+| `node scripts/smoke/ui-tour.mjs` | Phone-sized screenshot tour of every screen on the live app (Playwright) with throwaway members, cleaned up afterwards. Screenshots go to `.tmp-test/shots/`; `--base <url>` tours another deployment. |
 
 The database scripts read `POSTGRES_URL_NON_POOLING` from `.env.local`. They
 never print passwords or keys.
@@ -108,7 +110,7 @@ add the push values yourself (see `docs/DEPLOY.md`).
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | browser and server | Set by the Vercel ↔ Supabase integration |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`) | browser and server | Public key. Either name works. |
-| `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`) | server only | Sign-up, admin password resets, push delivery, calendar name. Never expose it. |
+| `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`) | server only | Sign-up, admin password resets, closing a removed member's login, push delivery. Never expose it. |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | browser and server | Web Push public key |
 | `VAPID_PRIVATE_KEY` | server only | Web Push private key |
 | `VAPID_SUBJECT` | server only | Contact for push services, e.g. `mailto:you@example.com` |
@@ -121,10 +123,11 @@ values are missing, push alerts are skipped and everything else still works.
 
 ## Deployment
 
-- **Preview first, then production.** Deploy a preview (`vercel deploy`, or
-  push a branch when the Vercel ↔ GitHub connection is on), check it, then
-  deploy to production (`vercel deploy --prod`, or merge to `main`). Production
-  is <https://sffd-shiftswap.vercel.app>.
+- **Preview first, then production.** The GitHub repository is not connected
+  to Vercel, so pushing or merging deploys nothing. From an up-to-date clone of
+  `release/v1`, deploy a preview (`vercel deploy`), check it, then promote it
+  or run `vercel deploy --prod`. Production is
+  <https://sffd-shiftswap.vercel.app>.
 - **Database changes** are new files in `supabase/migrations/`. Apply them with
   `npm run db:migrate` before (or together with) the deploy that needs them.
   Never edit a migration that has already been applied.
@@ -139,7 +142,7 @@ The step-by-step guide, rollback and monitoring are in `docs/DEPLOY.md`.
 | Document | For |
 |---|---|
 | [docs/USER-GUIDE.md](docs/USER-GUIDE.md) | Firefighters: install the app, post, request, confirm, back out, alerts, calendar |
-| [docs/ADMIN-GUIDE.md](docs/ADMIN-GUIDE.md) | Admins: approvals, roster, passwords, suspending, trades, activity log, when the app is down |
+| [docs/ADMIN-GUIDE.md](docs/ADMIN-GUIDE.md) | Admins: approvals, roster, passwords, suspending, removing accounts, trades, activity log, when the app is down |
 | [docs/DEPLOY.md](docs/DEPLOY.md) | Deploying, environment variables, migrations, push webhook, rollback, monitoring |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The design and build contract (database, rules, routes, UX) |
 | [HANDOFF.md](HANDOFF.md) | The next developer or AI agent: current state, services, how things fit together |

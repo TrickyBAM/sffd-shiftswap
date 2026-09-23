@@ -7,7 +7,6 @@ import {
   boardCursorOf,
   calendarFeedPath,
   calendarFeedUrls,
-  countByDate,
   latestRequestByShift,
   notificationCursorFilter,
   pendingNotesByMember,
@@ -130,14 +129,6 @@ describe('filter building', () => {
 })
 
 describe('schedule helpers', () => {
-  it('countByDate', () => {
-    expect(countByDate([{ date: '2026-10-01' }, { date: '2026-10-01' }, { date: '2026-10-03' }, { date: 'bad' }])).toEqual({
-      '2026-10-01': 2,
-      '2026-10-03': 1,
-    })
-    expect(countByDate([])).toEqual({})
-  })
-
   it('calendar feed links', () => {
     expect(calendarFeedPath(ID)).toBe(`/api/calendar/${ID}`)
     expect(calendarFeedUrls('https://shiftswap.example', ID)).toEqual({

@@ -19,7 +19,13 @@ vi.mock('@/lib/api', () => ({
 }))
 
 import { signUp } from '@/app/(auth)/signup/actions'
-import { hashClientIp, issueFormToken } from '@/app/(auth)/signup/_lib/guard'
+import { hashClientIp, hashEmailKey, issueFormToken } from '@/app/(auth)/signup/_lib/guard'
+import {
+  EMAIL_LIMIT,
+  EMAIL_LIMIT_MESSAGE,
+  NETWORK_LIMIT,
+  NETWORK_LIMIT_MESSAGE,
+} from '@/app/(auth)/signup/_lib/limits'
 
 const SECRET = 'sb_secret_for_tests'
 
@@ -60,17 +66,54 @@ describe('signUp server action', () => {
     })
   })
 
-  it('rate-limits by a salted hash of the client IP', async () => {
+  it('rate-limits by the email (3 an hour), then by the network (30 an hour)', async () => {
     await signUp(request())
-    expect(mocks.rateCheck).toHaveBeenCalledTimes(1)
-    const [, ipKey] = mocks.rateCheck.mock.calls[0]
-    expect(ipKey).toBe(hashClientIp('203.0.113.9', SECRET))
+    expect(mocks.rateCheck).toHaveBeenCalledTimes(2)
+    const [emailCall, networkCall] = mocks.rateCheck.mock.calls
+    expect(emailCall[1]).toBe(hashEmailKey('pat@example.com', SECRET))
+    expect(emailCall[1]).toMatch(/^email:[0-9a-f]{64}$/)
+    expect(emailCall[2]).toEqual({ max: EMAIL_LIMIT, windowMinutes: 60 })
+    expect(networkCall[1]).toBe(hashClientIp('203.0.113.9', SECRET))
+    expect(networkCall[2]).toEqual({ max: NETWORK_LIMIT, windowMinutes: 60 })
+    expect(EMAIL_LIMIT).toBe(3)
+    expect(NETWORK_LIMIT).toBe(30)
   })
 
-  it('refuses when the rate limit is reached', async () => {
-    mocks.rateCheck.mockResolvedValue(false)
+  it('never passes the raw email or IP to the database', async () => {
+    await signUp(request())
+    for (const [, key] of mocks.rateCheck.mock.calls) {
+      expect(key).not.toMatch(/pat|example|203\.0\.113/i)
+    }
+  })
+
+  it('counts an IPv6 client by its /64 network', async () => {
+    mocks.headers.set('x-forwarded-for', '2001:db8:aa:bb:1111:2222:3333:4444')
+    try {
+      await signUp(request())
+      await signUp(request({ email: 'other@example.com' }))
+    } finally {
+      mocks.headers.set('x-forwarded-for', '203.0.113.9, 10.0.0.1')
+    }
+    const networkKeys = mocks.rateCheck.mock.calls.filter(([, key]) => !String(key).startsWith('email:'))
+    expect(networkKeys).toHaveLength(2)
+    expect(networkKeys[0][1]).toBe(hashClientIp('2001:db8:aa:bb::1', SECRET))
+  })
+
+  it('refuses when the email has had too many tries, without using up the network allowance', async () => {
+    mocks.rateCheck.mockResolvedValueOnce(false)
     const result = await signUp(request())
-    expect(result.ok).toBe(false)
+    expect(result).toEqual({ ok: false, message: EMAIL_LIMIT_MESSAGE })
+    expect(mocks.rateCheck).toHaveBeenCalledTimes(1)
+    expect(mocks.createUser).not.toHaveBeenCalled()
+  })
+
+  it('refuses when the network limit is reached and suggests cellular data, not an admin', async () => {
+    mocks.rateCheck.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const result = await signUp(request())
+    expect(result).toEqual({ ok: false, message: NETWORK_LIMIT_MESSAGE })
+    expect(NETWORK_LIMIT_MESSAGE).toMatch(/cellular/i)
+    expect(NETWORK_LIMIT_MESSAGE).not.toMatch(/admin/i)
+    expect(EMAIL_LIMIT_MESSAGE).not.toMatch(/admin/i)
     expect(mocks.createUser).not.toHaveBeenCalled()
   })
 

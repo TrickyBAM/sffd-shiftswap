@@ -39,7 +39,9 @@ export function ChatPanel({ ref, shiftId, me, partners, selected, onSelect, isPo
   const partner = partners.find((p) => p.id === (selected ?? autoPick)) ?? partners[0]
 
   return (
-    <div ref={ref} className="scroll-mt-24">
+    // "Message" on a request scrolls here and moves focus here (tabIndex -1).
+    // The scroll margin clears the sticky header, safe area included (UX-10).
+    <div ref={ref} tabIndex={-1} className="scroll-mt-[calc(var(--safe-top)_+_5.5rem)] outline-none">
       <Card as="section" aria-labelledby="trade-chat-title">
         <CardHeader
           title={

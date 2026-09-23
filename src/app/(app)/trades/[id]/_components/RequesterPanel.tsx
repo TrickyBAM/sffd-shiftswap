@@ -2,16 +2,15 @@
 
 import { useState, type ReactNode } from 'react'
 import { HandHelping } from 'lucide-react'
-import { Button, Card, CardHeader, useToast } from '@/components/ui'
+import { Button, Card, CardHeader } from '@/components/ui'
 import { useProfile } from '@/components/providers/ProfileProvider'
-import { withdrawRequest } from '@/lib/api'
+import { relativeTime } from '@/lib/format'
 import { formatDate } from '@/lib/sffd/dates'
-import { createClient } from '@/lib/supabase/client'
 import type { Shift, ShiftRequest } from '@/lib/types/database'
 import { Notice } from '@/app/(app)/board/_components/Notice'
 import { RequestSheet } from '@/app/(app)/board/_components/RequestSheet'
-import { isStaleDataError, toastActionError } from '@/app/(app)/board/_lib/errors'
-import { currentTime, timeAgo } from '@/app/(app)/board/_lib/format'
+import { WithdrawRequestDialog } from '@/app/(app)/board/_components/WithdrawRequestDialog'
+import { currentTime } from '@/app/(app)/board/_lib/format'
 import { myCurrentRequest } from '../_lib/trade-model'
 
 export interface RequesterPanelProps {
@@ -26,33 +25,19 @@ export interface RequesterPanelProps {
 }
 
 /**
- * Anyone but the poster: my request's status with Withdraw, or "Request this
- * shift" (the Board's request sheet, which checks eligibility first).
+ * Anyone but the poster: my request's status with Withdraw (asks first), or
+ * "Request this shift" (the Board's request sheet, which checks eligibility
+ * first).
  */
 export function RequesterPanel({ shift, requests, started, disabled, onChanged }: RequesterPanelProps) {
   const { profile } = useProfile()
-  const toast = useToast()
   const request = myCurrentRequest(requests, profile.id)
   const [sheetOpen, setSheetOpen] = useState(false)
-  const [withdrawing, setWithdrawing] = useState(false)
+  // The request the "Withdraw your request?" dialog is asking about.
+  const [withdrawing, setWithdrawing] = useState<ShiftRequest | null>(null)
   const [nowMs] = useState(() => currentTime())
   const canRequest = shift.status === 'open' && !started
   const poster = shift.poster_name
-
-  async function withdraw(r: ShiftRequest) {
-    if (withdrawing) return
-    setWithdrawing(true)
-    try {
-      await withdrawRequest(createClient(), r.id)
-      toast.success('Request withdrawn', `${poster} has been told.`)
-      await onChanged()
-    } catch (err) {
-      toastActionError(toast, err, "Couldn't withdraw your request")
-      if (isStaleDataError(err)) await onChanged()
-    } finally {
-      setWithdrawing(false)
-    }
-  }
 
   const requestButton = canRequest ? (
     <Button fullWidth disabled={disabled} icon={<HandHelping size={18} aria-hidden="true" />} onClick={() => setSheetOpen(true)}>
@@ -67,13 +52,14 @@ export function RequesterPanel({ shift, requests, started, disabled, onChanged }
         tone="success"
         title="You asked for this shift"
         actions={
-          <Button variant="secondary" loading={withdrawing} disabled={disabled} onClick={() => withdraw(request)}>
+          <Button variant="secondary" disabled={disabled} onClick={() => setWithdrawing(request)}>
             Withdraw my request
           </Button>
         }
       >
         <span className="block" suppressHydrationWarning>
-          Sent {timeAgo(request.created_at, nowMs)}. Waiting for {poster} to answer — you&apos;ll get an alert.
+          Sent {relativeTime(request.created_at, nowMs, { style: 'inline' })}. Waiting for {poster} to answer — you&apos;ll
+          get an alert.
         </span>
         {request.return_date ? (
           <span className="mt-1 block">
@@ -117,6 +103,12 @@ export function RequesterPanel({ shift, requests, started, disabled, onChanged }
           onChanged={() => void onChanged()}
         />
       ) : null}
+      <WithdrawRequestDialog
+        request={withdrawing}
+        posterName={poster}
+        onClose={() => setWithdrawing(null)}
+        onChanged={onChanged}
+      />
     </>
   )
 }

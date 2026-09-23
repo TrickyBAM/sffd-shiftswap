@@ -1,10 +1,14 @@
 // Web Push subscription rows and push delivery helpers (ARCHITECTURE §6.1
 // "push_subscriptions", §6.5). Members insert/delete their own rows directly
-// (RLS). The browser-side permission/subscribe flow is in src/lib/push/client.ts.
+// (RLS). The browser-side permission/subscribe flow is in src/lib/push/client.ts,
+// which stores and removes rows only through the functions here.
 
 import { AppError } from '@/lib/errors'
-import type { PushBatchRow, PushSubscriptionRow } from '@/lib/types/database'
-import { callRpc, clampLimit, runList, runVoid, type Sb } from './core'
+import type { PushBatchRow } from '@/lib/types/database'
+import { callRpc, clampLimit, runMaybe, runVoid, type Sb } from './core'
+
+/** Shown when the database rejects the browser's push service (endpoint check, §9). */
+export const PUSH_UNSUPPORTED_MESSAGE = "Alerts aren't supported in this browser. Try Safari, Chrome, Edge or Firefox."
 
 export { PUSH_FLUSH_PATH, requestPushFlush } from './core'
 
@@ -33,10 +37,18 @@ export function pushSubscriptionInput(
   return { endpoint, p256dh, auth, userAgent: userAgent ?? null }
 }
 
+/** True for the check-constraint violation (SQLSTATE 23514) the endpoint check raises. */
+function isCheckViolation(err: AppError): boolean {
+  const cause = err.cause as { code?: unknown } | null | undefined
+  return cause?.code === '23514' || /\[23514\]/.test(err.details ?? '')
+}
+
 /**
  * Stores this device's push subscription for me. A plain insert: the database
  * replaces any older row for the same endpoint (the device's last signed-in
- * member gets its alerts), and user_id defaults to me.
+ * member gets its alerts), and user_id defaults to me. A push service the
+ * database doesn't accept (SQLSTATE 23514) throws INVALID_INPUT with
+ * PUSH_UNSUPPORTED_MESSAGE.
  */
 export async function savePushSubscription(sb: Sb, input: PushSubscriptionInput): Promise<void> {
   try {
@@ -50,8 +62,8 @@ export async function savePushSubscription(sb: Sb, input: PushSubscriptionInput)
     )
   } catch (err) {
     // The endpoint check constraint only accepts the browser push services.
-    if (err instanceof AppError && err.code === 'INVALID_INPUT') {
-      throw new AppError('INVALID_INPUT', "This browser's alert service isn't supported. Try Safari, Chrome, Edge or Firefox.", {
+    if (err instanceof AppError && err.code === 'INVALID_INPUT' && isCheckViolation(err)) {
+      throw new AppError('INVALID_INPUT', PUSH_UNSUPPORTED_MESSAGE, {
         cause: err,
         status: err.status,
         details: err.details,
@@ -61,17 +73,24 @@ export async function savePushSubscription(sb: Sb, input: PushSubscriptionInput)
   }
 }
 
+/** True for the error savePushSubscription() throws when the browser's push service isn't accepted. */
+export function isUnsupportedPushService(error: unknown): boolean {
+  return error instanceof AppError && error.code === 'INVALID_INPUT' && error.message === PUSH_UNSUPPORTED_MESSAGE
+}
+
+/** True when I already have a stored subscription for this endpoint (RLS: my rows only). */
+export async function hasPushSubscription(sb: Sb, endpoint: string): Promise<boolean> {
+  if (!endpoint) return false
+  const row = await runMaybe<{ id: string }>(
+    sb.from('push_subscriptions').select('id').eq('endpoint', endpoint).limit(1).maybeSingle(),
+  )
+  return row !== null
+}
+
 /** Removes my subscription for this device's endpoint (e.g. alerts turned off, sign-out). */
 export async function deletePushSubscription(sb: Sb, endpoint: string): Promise<void> {
   if (!endpoint) return
   await runVoid(sb.from('push_subscriptions').delete().eq('endpoint', endpoint))
-}
-
-/** My stored push subscriptions (one per device), newest first. */
-export async function listMyPushSubscriptions(sb: Sb): Promise<PushSubscriptionRow[]> {
-  return runList<PushSubscriptionRow>(
-    sb.from('push_subscriptions').select('*').order('created_at', { ascending: false }),
-  )
 }
 
 /**

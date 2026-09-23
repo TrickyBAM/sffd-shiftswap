@@ -2,8 +2,9 @@
 
 import type { MonthSchedule, ScheduleDay } from '@/lib/schedule/effective'
 import { cn, Skeleton } from '@/components/ui'
+import { BarMark } from './BarMark'
 import { dayAriaLabel, dayMarks } from './calendar-model'
-import { BAR_CLASS, CELL_TINT } from './tones'
+import { CELL_TINT } from './tones'
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
 
@@ -48,7 +49,11 @@ export function MonthGrid({ month, label, onSelect }: MonthGridProps) {
 function DayCell({ day, onSelect }: { day: ScheduleDay; onSelect: (day: ScheduleDay) => void }) {
   const marks = dayMarks(day)
   const dayNumber = Number(day.ymd.slice(8, 10))
-  const faded = !day.inMonth ? 'opacity-40' : day.isPast ? 'opacity-55' : undefined
+  // Past days fade as a whole (the number stays about 5.5:1). Days from the
+  // next/previous month keep a readable dim number (about 5.5:1, UX-13) and
+  // only soften their marks.
+  const pastFade = day.inMonth && day.isPast ? 'opacity-55' : undefined
+  const marksFade = !day.inMonth ? 'opacity-70' : undefined
 
   return (
     <button
@@ -63,39 +68,32 @@ function DayCell({ day, onSelect }: { day: ScheduleDay; onSelect: (day: Schedule
         marks.outlined && 'ring-2 ring-inset ring-cal-work',
       )}
     >
-      <span className={cn('flex min-w-0 flex-1 flex-col', faded)}>
+      <span className={cn('flex min-w-0 flex-1 flex-col', pastFade)}>
         <span
           className={cn(
             'flex h-6 w-6 items-center justify-center self-center rounded-full text-sm font-semibold sm:self-start',
             day.isToday ? 'bg-fg text-surface ring-2 ring-fg ring-offset-2 ring-offset-card' : 'text-fg',
-            !day.inMonth && 'text-fg-dim',
+            !day.inMonth && !day.isToday && 'text-fg-dim',
           )}
         >
           {dayNumber}
         </span>
 
         {marks.coveredBy ? (
-          <span className="mt-0.5 truncate text-center text-[10px] font-semibold leading-3 text-sffd-red-text sm:text-left">
+          <span
+            className={cn(
+              'mt-0.5 truncate text-center text-[10px] font-semibold leading-3 text-sffd-red-text sm:text-left',
+              marksFade,
+            )}
+          >
             {marks.coveredBy}
           </span>
         ) : null}
 
-        <span className="mt-auto flex flex-col gap-0.5 pt-1">
-          {marks.bars.map((bar, i) =>
-            bar.kind === 'available' ? (
-              <span
-                key={`${bar.kind}-${i}`}
-                className={cn(
-                  'flex h-4 items-center justify-center rounded-full text-[10px] font-bold leading-none text-on-accent',
-                  BAR_CLASS.available,
-                )}
-              >
-                {bar.count}
-              </span>
-            ) : (
-              <span key={`${bar.kind}-${i}`} className={cn('h-1.5 w-full rounded-full', BAR_CLASS[bar.kind])} />
-            ),
-          )}
+        <span className={cn('mt-auto flex flex-col gap-0.5 pt-1', marksFade)}>
+          {marks.bars.map((bar, i) => (
+            <BarMark key={`${bar.kind}-${i}`} kind={bar.kind} count={bar.count} className="w-full" />
+          ))}
         </span>
       </span>
     </button>

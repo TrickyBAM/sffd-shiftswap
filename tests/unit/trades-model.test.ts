@@ -1,17 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import type { RequestWithShift } from '@/lib/api'
+import { undoneTradesFrom, type RequestWithShift } from '@/lib/api'
 import type { LedgerRow, Shift, ShiftRequest } from '@/lib/types/database'
 import {
   activeRequests,
   balanceLines,
   balanceSummary,
+  balanceToneClass,
   buildHistory,
-  cancelStatus,
+  cancelInfo,
   chooseCta,
   groupIncoming,
   groupTrades,
   latestTradeWith,
+  myReturnDateLine,
   namesPreview,
+  openCancelRequests,
   parseTradeTab,
   pendingActionCount,
   perspectiveLabel,
@@ -118,10 +121,35 @@ describe('labels', () => {
     expect(chooseCta(1)).toBe('1 request — take a look')
   })
 
-  it('describes cancel requests', () => {
-    expect(cancelStatus(null, ME, 'Ana')).toBe('')
-    expect(cancelStatus(ME, ME, 'Ana')).toBe('You asked to cancel — waiting on Ana')
-    expect(cancelStatus(ANA, ME, 'Ana')).toBe('Ana asked to cancel — your answer is needed')
+  it('describes cancel requests that can still be answered', () => {
+    const live = { started: false, partnerName: 'Ana' }
+    expect(cancelInfo({ ...live, cancelRequestedBy: null }, ME)).toBeNull()
+    expect(cancelInfo({ ...live, cancelRequestedBy: ME }, ME)).toEqual({
+      badge: 'Cancel requested',
+      tone: 'yellow',
+      text: 'You asked to cancel. Waiting on Ana.',
+      canWithdraw: false,
+    })
+    expect(cancelInfo({ ...live, cancelRequestedBy: ANA }, ME)).toMatchObject({
+      badge: 'Needs your answer',
+      text: 'Ana asked to cancel. Open the trade to agree or decline.',
+      canWithdraw: false,
+    })
+  })
+
+  it('marks a cancel request expired once a date has started; only the asker can withdraw it (TF-5)', () => {
+    const started = { started: true, partnerName: 'Ana' }
+    const mine = cancelInfo({ ...started, cancelRequestedBy: ME }, ME)
+    expect(mine).toMatchObject({ badge: 'Cancel request expired', tone: 'gray', canWithdraw: true })
+    expect(mine?.text).toMatch(/^A date in this trade has started/)
+    const theirs = cancelInfo({ ...started, cancelRequestedBy: ANA }, ME)
+    expect(theirs).toMatchObject({ badge: 'Cancel request expired', tone: 'gray', canWithdraw: false })
+    expect(theirs?.text).toMatch(/^Ana asked to cancel, but a date in this trade has started/)
+  })
+
+  it('words my SwapMatch return date from my side: the poster works my shift (UX-01)', () => {
+    expect(myReturnDateLine('Mike Lee', '2026-10-21')).toBe('In return, Mike Lee works your Wed, Oct 21 shift.')
+    expect(myReturnDateLine('', '2026-10-21')).toBe('In return, the poster works your Wed, Oct 21 shift.')
   })
 })
 
@@ -184,6 +212,9 @@ describe('groupTrades', () => {
     expect(groups[1].legs.map((l) => l.id)).toEqual([original.id, returnLeg.id])
     expect(perspectiveLabel(groups[1].legs[0], ME)).toBe('Ana Cruz is working for you')
     expect(perspectiveLabel(groups[1].legs[1], ME)).toBe("You're working for Ana Cruz")
+    expect(groups.map((g) => g.started)).toEqual([false, false])
+    // Once "now" passes a leg's start, the trade counts as started.
+    expect(groupTrades([returnLeg, original], ME, Date.parse('2026-10-03T16:00:00Z'))[0].started).toBe(true)
   })
 
   it('shows a lone return leg when the original already started', () => {
@@ -200,6 +231,60 @@ describe('groupTrades', () => {
     expect(group.isSwap).toBe(true)
     expect(group.partnerName).toBe('Ana Cruz')
     expect(group.cancelRequestedBy).toBe(ANA)
+    expect(group.started).toBe(true)
+  })
+})
+
+describe('cancel requests after a SwapMatch leg started (TF-5)', () => {
+  // Ana asked to cancel. The original is Oct 20; the return leg is on
+  // returnDate. A started leg is no longer among my upcoming confirmed legs.
+  function swap(returnDate: string) {
+    const original = shift({
+      date: '2026-10-20',
+      status: 'covered',
+      coverer_id: ANA,
+      coverer_name: 'Ana Cruz',
+      return_dates: [returnDate],
+      cancel_requested_by: ANA,
+    })
+    const leg = shift({
+      date: returnDate,
+      poster_id: ANA,
+      poster_name: 'Ana Cruz',
+      coverer_id: ME,
+      coverer_name: 'Brian Machado',
+      status: 'covered',
+      return_leg_of: original.id,
+    })
+    original.return_leg_id = leg.id
+    return { original, leg }
+  }
+
+  it('stops waiting on me, and the Confirmed tab shows it expired', () => {
+    const { original } = swap('2026-09-22')
+    const confirmed = [original]
+    expect(openCancelRequests([original], confirmed, NOW)).toEqual([])
+    expect(pendingActionCount([], openCancelRequests([original], confirmed, NOW))).toBe(0)
+    const [trade] = groupTrades(confirmed, ME, NOW)
+    expect(trade.started).toBe(true)
+    expect(cancelInfo(trade, ME)?.badge).toBe('Cancel request expired')
+  })
+
+  it('still waits on me while both dates are ahead', () => {
+    const { original, leg } = swap('2026-10-12')
+    const confirmed = [original, leg]
+    expect(openCancelRequests([original], confirmed, NOW)).toEqual([original])
+    const [trade] = groupTrades(confirmed, ME, NOW)
+    expect(trade.started).toBe(false)
+    expect(cancelInfo(trade, ME)?.badge).toBe('Needs your answer')
+    // …until the return leg starts.
+    expect(openCancelRequests([original], confirmed, Date.parse('2026-10-12T15:00:00Z'))).toEqual([])
+  })
+
+  it('keeps ordinary trades that have not started', () => {
+    const single = shift({ status: 'covered', coverer_id: ANA, coverer_name: 'Ana Cruz', cancel_requested_by: ANA })
+    expect(openCancelRequests([single], [single], NOW)).toEqual([single])
+    expect(openCancelRequests([single], [single], Date.parse('2026-10-01T00:00:00Z'))).toEqual([])
   })
 })
 
@@ -243,6 +328,105 @@ describe('buildHistory', () => {
   })
 })
 
+describe('undone trades in History (TF-4)', () => {
+  const T = '2026-09-20T18:00:00Z'
+
+  it('shows the poster a trade undone by agreement, which left no other trace', () => {
+    // The post reopened in the same transaction the request was cancelled.
+    const post = shift({ date: '2026-10-10', status: 'open', updated_at: T })
+    const anasRequest = request(post, { status: 'cancelled', decided_at: T })
+    const undone = undoneTradesFrom([anasRequest], [], ME)
+    expect(undone).toHaveLength(1)
+
+    const items = buildHistory([], [], [], ME, NOW, undone)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      key: 'undone:' + anasRequest.id,
+      shiftId: post.id,
+      date: '2026-10-10',
+      title: 'Trade with Ana Cruz was cancelled',
+      detail: 'Ana Cruz was going to work your shift.',
+      badge: 'Cancelled',
+      tone: 'cancelled',
+      isSwap: false,
+    })
+  })
+
+  it('gives the coverer one row for a SwapMatch undone by agreement, not two', () => {
+    const post = shift({
+      date: '2026-10-20',
+      poster_id: ANA,
+      poster_name: 'Ana Cruz',
+      status: 'open',
+      return_dates: ['2026-10-12'],
+      updated_at: T,
+    })
+    // My shift that Ana was going to work in return: cancelled with the trade.
+    const leg = shift({
+      date: '2026-10-12',
+      poster_id: ME,
+      poster_name: 'Brian Machado',
+      status: 'cancelled',
+      coverer_id: null,
+      coverer_name: 'Ana Cruz',
+      return_leg_of: post.id,
+      cancelled_at: T,
+      cancelled_by: ANA,
+      cancel_note: 'Cancelled by agreement',
+    })
+    const mine = request(post, {
+      requester_id: ME,
+      requester_name: 'Brian Machado',
+      return_date: '2026-10-12',
+      status: 'cancelled',
+      decided_at: T,
+    })
+    const undone = undoneTradesFrom([mine], [leg], ME)
+
+    const items = buildHistory([leg], [mine], [], ME, NOW, undone)
+    expect(items.map((i) => i.title)).toEqual(['Trade with Ana Cruz was cancelled by agreement'])
+    expect(items[0].detail).toBe(
+      "You were going to work Ana Cruz's shift. Ana Cruz was going to work your Mon, Oct 12 shift in return; that's cancelled too.",
+    )
+    expect(items[0].isSwap).toBe(true)
+  })
+
+  it("shows an admin's void after the start once, with the reason", () => {
+    const post = shift({
+      date: '2026-09-21',
+      status: 'cancelled',
+      coverer_id: null,
+      coverer_name: 'Ana Cruz',
+      cancelled_at: T,
+      cancelled_by: MIKE,
+      cancel_note: 'Both were on leave',
+    })
+    const anasRequest = request(post, { status: 'cancelled', decided_at: T })
+    const undone = undoneTradesFrom([anasRequest], [], ME)
+
+    const items = buildHistory([post], [], [], ME, NOW, undone)
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      title: 'An admin voided your trade with Ana Cruz',
+      detail: 'Ana Cruz was going to work your shift. Reason: “Both were on leave”',
+      badge: 'Voided',
+    })
+  })
+
+  it('keeps separate rows for what happened to the post afterwards', () => {
+    // Undone by agreement (reopened), then Mike asked, then I took the post down.
+    const takenDown = '2026-09-22T10:00:00Z'
+    const post = shift({ date: '2026-10-10', status: 'cancelled', cancelled_by: ME, cancelled_at: takenDown })
+    const anasRequest = request(post, { status: 'cancelled', decided_at: T })
+    const mikes = request(post, { requester_id: MIKE, requester_name: 'Mike Lee', status: 'cancelled', decided_at: takenDown })
+    const undone = undoneTradesFrom([anasRequest, mikes], [], ME)
+    expect(undone.map((u) => u.request.id)).toEqual([anasRequest.id])
+
+    const items = buildHistory([post], [], [], ME, NOW, undone)
+    expect(items.map((i) => i.title).sort()).toEqual(['Trade with Ana Cruz was cancelled', 'You cancelled this post'])
+  })
+})
+
 describe('balances', () => {
   const row = (overrides: Partial<LedgerRow>): LedgerRow => ({
     partner_id: ANA,
@@ -283,9 +467,15 @@ describe('balances', () => {
     expect(signed(0)).toBe('0')
     expect(signed(-3)).toBe('−3')
     expect(balanceSummary({ covered: 0, given: 0 })).toBe('No trades yet.')
-    expect(balanceSummary({ covered: 5, given: 3 })).toBe("You've covered 2 more shifts than you've given away.")
-    expect(balanceSummary({ covered: 1, given: 2 })).toBe("You've given away 1 more shift than you've covered.")
+    expect(balanceSummary({ covered: 5, given: 3 })).toBe("You've covered 2 more shifts than you've given.")
+    expect(balanceSummary({ covered: 1, given: 2 })).toBe("You've given 1 more shift than you've covered.")
     expect(balanceSummary({ covered: 2, given: 2 })).toMatch(/even/)
+  })
+
+  it('colours balances the same everywhere, leaving orange for my open post (UX-11)', () => {
+    expect(balanceToneClass(2)).toBe('text-accent-green')
+    expect(balanceToneClass(-1)).toBe('text-accent-yellow')
+    expect(balanceToneClass(0)).toBe('text-fg')
   })
 
   it('finds the latest trade with a partner', () => {

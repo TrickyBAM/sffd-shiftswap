@@ -3,7 +3,8 @@
 import { Check, ClipboardList, X } from 'lucide-react'
 import { Avatar, Badge, Button, Card } from '@/components/ui'
 import type { PendingApproval } from '@/lib/api'
-import { formatInstant, stationWithBattalion, timeAgo, tourText } from '../_lib/format'
+import { relativeTime, tourLabel } from '@/lib/format'
+import { formatInstant, stationWithBattalion } from '../_lib/format'
 import { ContactButtons } from './ContactButtons'
 
 export interface ApprovalCardProps {
@@ -24,16 +25,19 @@ export function ApprovalCard({ approval, onApprove, onReject }: ApprovalCardProp
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-base font-semibold text-fg">{name}</h3>
           <p className="text-sm text-fg-muted">
-            {member.rank ?? 'No rank'} · {stationWithBattalion(member.station)} · {tourText(member.tour)}
+            {member.rank ?? 'No rank'} · {stationWithBattalion(member.station)} · {tourLabel(member.tour)}
           </p>
           <p className="mt-0.5 text-xs text-fg-dim">
-            Signed up <time dateTime={member.created_at} title={formatInstant(member.created_at)}>{timeAgo(member.created_at)}</time>
+            Signed up{' '}
+            <time dateTime={member.created_at} title={formatInstant(member.created_at)}>
+              {relativeTime(member.created_at, undefined, { style: 'inline' })}
+            </time>
             {submittedAt && submittedAt !== member.created_at ? (
               <>
                 {' '}
                 · last updated{' '}
                 <time dateTime={submittedAt} title={formatInstant(submittedAt)}>
-                  {timeAgo(submittedAt)}
+                  {relativeTime(submittedAt, undefined, { style: 'inline' })}
                 </time>
               </>
             ) : null}

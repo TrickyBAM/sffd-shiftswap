@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/ui/Toast'
 import { captureInstallPrompt } from '@/hooks/useInstallPrompt'
+import { createDeployCheck, isUpdateForRunningPage, workerScriptUrl } from '@/lib/pwa/update-check'
 import { resyncPushSubscription } from '@/lib/push/client'
 import { createClient } from '@/lib/supabase/client'
 
@@ -13,7 +14,11 @@ import { createClient } from '@/lib/supabase/client'
  * action tells it to SKIP_WAITING and reloads once it takes control.
  *
  * The script URL carries the deployment version (`/sw.js?v=<commit>`), so every deploy
- * installs a fresh worker that re-caches the offline page for that build.
+ * installs a fresh worker that re-caches the offline page for that build. When the app
+ * comes back to the foreground (at most once a minute) it asks the server which version
+ * is deployed and registers the new worker if this page is behind (see
+ * src/lib/pwa/update-check.ts). A waiting worker for the build this page already runs
+ * takes over quietly, without a reload prompt.
  */
 export default function PWARegister() {
   const toast = useToast()
@@ -39,8 +44,15 @@ export default function PWARegister() {
       window.location.reload()
     }
 
+    const runningVersion = process.env.NEXT_PUBLIC_APP_VERSION
+
     const offerUpdate = (worker: ServiceWorker) => {
       if (disposed) return
+      if (!isUpdateForRunningPage(worker, runningVersion)) {
+        // This page was loaded from the new deploy already: nothing to reload for.
+        worker.postMessage({ type: 'SKIP_WAITING' })
+        return
+      }
       toast.show({
         id: 'sw-update',
         tone: 'info',
@@ -99,18 +111,27 @@ export default function PWARegister() {
       })
     }
 
-    // Long-lived installed apps rarely navigate; check for a new deploy when reopened.
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') registration?.update().catch(() => {})
+    // Long-lived installed apps rarely navigate: check for a new deploy when the app
+    // comes back to the foreground (throttled), and re-offer an update still waiting.
+    const checkForDeploy = createDeployCheck({
+      runningVersion,
+      getRegistration: () => registration,
+      register: (url) => sw.register(url, { scope: '/', updateViaCache: 'none' }),
+    })
+    const onResume = () => {
+      if (document.visibilityState !== 'visible') return
+      void checkForDeploy().then((outcome) => {
+        // A dismissed update that is still waiting is offered again (once a minute at most).
+        if (outcome !== 'skipped' && registration?.waiting && sw.controller) offerUpdate(registration.waiting)
+      })
     }
 
     sw.addEventListener('controllerchange', onControllerChange)
     sw.addEventListener('message', onMessage)
-    document.addEventListener('visibilitychange', onVisibility)
+    document.addEventListener('visibilitychange', onResume)
+    window.addEventListener('focus', onResume)
 
-    const version = process.env.NEXT_PUBLIC_APP_VERSION
-    const scriptUrl = version ? `/sw.js?v=${encodeURIComponent(version)}` : '/sw.js'
-    sw.register(scriptUrl, { scope: '/', updateViaCache: 'none' })
+    sw.register(workerScriptUrl(runningVersion), { scope: '/', updateViaCache: 'none' })
       .then((reg) => {
         if (disposed) return
         registration = reg
@@ -127,7 +148,8 @@ export default function PWARegister() {
       disposed = true
       sw.removeEventListener('controllerchange', onControllerChange)
       sw.removeEventListener('message', onMessage)
-      document.removeEventListener('visibilitychange', onVisibility)
+      document.removeEventListener('visibilitychange', onResume)
+      window.removeEventListener('focus', onResume)
     }
   }, [toast, router])
 

@@ -23,17 +23,19 @@ import {
 } from 'lucide-react'
 import { Spinner } from '@/components/ui'
 import { cn } from '@/components/ui/cn'
+import { relativeTime } from '@/lib/format'
 import type { Notification, NotificationType } from '@/lib/types/database'
-import { fullTimestamp, relativeTime, safeAlertUrl } from './alerts-model'
+import { fullTimestamp, safeAlertUrl } from './alerts-model'
 
 const TYPE_ICONS: Record<NotificationType, { icon: LucideIcon; className: string }> = {
   request_received: { icon: Inbox, className: 'text-accent-blue' },
   request_accepted: { icon: CheckCircle2, className: 'text-accent-green' },
   request_declined: { icon: XCircle, className: 'text-fg-muted' },
   request_withdrawn: { icon: Undo2, className: 'text-fg-muted' },
-  post_cancelled: { icon: CalendarX, className: 'text-accent-orange' },
+  // Orange is kept for 'my open post' (UX-11); a cancellation is a heads-up.
+  post_cancelled: { icon: CalendarX, className: 'text-accent-yellow' },
   cancel_requested: { icon: AlertTriangle, className: 'text-accent-yellow' },
-  trade_cancelled: { icon: CalendarX, className: 'text-accent-orange' },
+  trade_cancelled: { icon: CalendarX, className: 'text-accent-yellow' },
   cancel_declined: { icon: ShieldCheck, className: 'text-accent-blue' },
   trade_voided: { icon: Ban, className: 'text-sffd-red-text' },
   new_shift: { icon: CalendarPlus, className: 'text-accent-blue' },

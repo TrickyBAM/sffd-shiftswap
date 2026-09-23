@@ -28,6 +28,10 @@ const ICON_LINK =
 /**
  * Sticky page header: title slot, alerts bell with unread badge (→ /alerts) and, for
  * admins, a shield link to /admin. Must render inside <ProfileProvider>.
+ *
+ * Titles and subtitles wrap to a second line instead of being cut off with "…" on a
+ * 375 px phone. Left/right safe areas are padded by AppShell's <main>, which this
+ * header sits in.
  */
 export default function AppHeader({ title, subtitle, back, actions, className }: AppHeaderProps) {
   const { profile, isAdmin } = useProfile()
@@ -41,7 +45,7 @@ export default function AppHeader({ title, subtitle, back, actions, className }:
   return (
     <header
       className={cn(
-        'glass-nav sticky top-0 z-30 border-b border-line pt-safe px-safe',
+        'glass-nav sticky top-0 z-30 border-b border-line pt-safe',
         className,
       )}
     >
@@ -57,8 +61,10 @@ export default function AppHeader({ title, subtitle, back, actions, className }:
         ) : null}
 
         <div className="min-w-0 flex-1">
-          <h1 className="truncate font-display text-3xl leading-none tracking-wide text-fg">{title}</h1>
-          {subtitle ? <p className="mt-0.5 truncate text-sm text-fg-muted">{subtitle}</p> : null}
+          <h1 className="line-clamp-2 font-display text-3xl leading-none tracking-wide break-words text-fg">{title}</h1>
+          {subtitle ? (
+            <p className="mt-0.5 line-clamp-2 text-sm leading-snug text-pretty break-words text-fg-muted">{subtitle}</p>
+          ) : null}
         </div>
 
         {actions ? <div className="flex shrink-0 items-center gap-1">{actions}</div> : null}

@@ -3,6 +3,7 @@
 import { useId, useState } from 'react'
 import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { FormAlert } from '@/components/forms/FormAlert'
 import { Button, Field, Input, Sheet, useToast } from '@/components/ui'
 import { StationPicker, TourPicker } from '@/components/pickers'
 import { useProfile } from '@/components/providers/ProfileProvider'
@@ -10,7 +11,6 @@ import { updateMyProfile } from '@/lib/api'
 import { errorMessage } from '@/lib/errors'
 import { createClient } from '@/lib/supabase/client'
 import { isNotifyScope } from '@/lib/types/database'
-import { FormAlert } from './FormAlert'
 import { detailsSchema } from './profile-model'
 import { ScopeRadios } from './ScopeRadios'
 
@@ -24,6 +24,8 @@ export function EditDetailsSheet({ onClose }: { onClose: () => void }) {
   const toast = useToast()
   const formId = useId()
   const [formError, setFormError] = useState<string | null>(null)
+  // Bumped on every failed save, so the same message is announced again.
+  const [attempt, setAttempt] = useState(0)
 
   const {
     control,
@@ -52,7 +54,10 @@ export function EditDetailsSheet({ onClose }: { onClose: () => void }) {
         notifyScope: values.notifyScope,
       })
     } catch (error) {
+      // Shown next to Save (the sticky footer), not at the top of this long
+      // sheet where it would be scrolled out of view (UX-06).
       setFormError(errorMessage(error))
+      setAttempt((n) => n + 1)
       return
     }
     try {
@@ -77,19 +82,20 @@ export function EditDetailsSheet({ onClose }: { onClose: () => void }) {
       closeOnOverlay={!isDirty && !isSubmitting}
       closeOnEscape={!isSubmitting}
       footer={
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button type="submit" form={formId} fullWidth loading={isSubmitting} disabled={!isDirty}>
-            Save changes
-          </Button>
+        <div className="space-y-3">
+          {formError ? <FormAlert key={attempt}>{formError}</FormAlert> : null}
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button type="submit" form={formId} fullWidth loading={isSubmitting} disabled={!isDirty}>
+              Save changes
+            </Button>
+          </div>
         </div>
       }
     >
       <form id={formId} onSubmit={onSubmit} noValidate className="space-y-5 pt-2">
-        {formError ? <FormAlert>{formError}</FormAlert> : null}
-
         <ReadOnlyDetails
           rows={[
             { label: 'Name', value: profile.full_name || '—' },

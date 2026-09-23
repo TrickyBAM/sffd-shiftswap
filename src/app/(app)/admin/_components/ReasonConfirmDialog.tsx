@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from 'react'
 import { ConfirmDialog, useToast } from '@/components/ui'
+import { FormAlert } from '@/components/forms/FormAlert'
 import { toAppError } from '@/lib/errors'
 import { ReasonField, reasonOk } from './ReasonField'
 
@@ -94,14 +95,7 @@ export function ReasonConfirmDialog({
             placeholder={reasonPlaceholder}
           />
         ) : null}
-        {error ? (
-          <p
-            role="alert"
-            className="rounded-xl border border-sffd-red/30 bg-sffd-red/10 px-3 py-2 text-sm text-sffd-red-text"
-          >
-            {error}
-          </p>
-        ) : null}
+        {error ? <FormAlert>{error}</FormAlert> : null}
       </div>
     </ConfirmDialog>
   )

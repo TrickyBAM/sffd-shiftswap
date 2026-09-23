@@ -6,7 +6,7 @@ import { useProfile } from '@/components/providers/ProfileProvider'
 import { createClient } from '@/lib/supabase/client'
 import { useAsyncData } from '../../_lib/useAsyncData'
 import { loadMemberDetail } from '../_lib/edit'
-import { statusLabel } from '../_lib/query'
+import { memberStateLabel } from '../_lib/query'
 import { MemberActions } from './MemberActions'
 import { MemberDetails } from './MemberDetails'
 import { MemberEditForm } from './MemberEditForm'
@@ -34,7 +34,7 @@ export function MemberSheet({ memberId, onClose, onChanged }: MemberSheetProps) 
   const description = member
     ? editing
       ? 'Edit their details'
-      : [member.rank, statusLabel(member.status)].filter(Boolean).join(' · ')
+      : [member.rank, memberStateLabel(member)].filter(Boolean).join(' · ')
     : undefined
 
   return (

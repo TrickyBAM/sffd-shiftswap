@@ -28,24 +28,44 @@ record, and members acknowledge that once.
 - **Users:** firefighters on phones, mostly iPhones with the app installed to the
   home screen.
 
-## 2. Current state (2026-09-23)
+## 2. Current state (2026-09-23, evening)
 
-- **Branch `release/v1`** holds the v1 rebuild. `main` is the default branch and
-  what production should deploy from once v1 is merged.
-- **Database:** the final schema (`supabase/migrations/0001` to `0010`) is applied
-  to the live Supabase database. Don't edit applied migrations; add new numbered files.
-- **App code:** the typed data layer (`src/lib/api`), UI primitives, app shell, all
-  routes in ARCHITECTURE section 7.1, and the API routes (keepalive, push flush,
-  calendar feed) were built on `release/v1`. Before merging, confirm the branch is
-  green: `npm run check` and `npm run build`, then a manual pass through
-  `docs/USER-GUIDE.md` on a phone.
-- **Production** (<https://sffd-shiftswap.vercel.app>) was still serving a
-  pre-v1 build from July 2026 when this was written. That build pointed at the old
-  Supabase project (`mddpdrkxexxpyneqmxfi`), which is gone. v1 goes live when
-  `release/v1` is merged and deployed (`docs/DEPLOY.md`).
-- **After the first production deploy:** set the VAPID and webhook variables,
-  enable the push webhook, make Brian an admin and upload the roster
-  (`docs/DEPLOY.md` and `docs/ADMIN-GUIDE.md`).
+Checked on 2026-09-23 with read-only commands (`/api/keepalive`,
+`npm run db:migrate -- --status`, `node scripts/db/set-app-config.mjs --list`
+and a count query). Re-check before relying on it.
+
+- **Production is v1.** <https://sffd-shiftswap.vercel.app> serves the v1
+  rebuild, deployed from the branch **`release/v1`** with the Vercel CLI
+  (`vercel deploy --prod` from the local clone). **The GitHub repository is not
+  connected to the Vercel project**, so pushing or merging deploys nothing; see
+  `docs/DEPLOY.md` section 2. `/api/keepalive` answers `"ok": true`.
+- **Branches:** `release/v1` holds v1. `main` (GitHub's default branch) still
+  holds the pre-v1 code and the Keepalive workflow. Merge `release/v1` into
+  `main` when v1 is signed off, so GitHub matches production and CI runs on
+  `main` too.
+- **Database:** the fresh Supabase project (`xyywfujcjqadoldmydef`). The v1
+  schema is `supabase/migrations/0001` to `0011`. `0001` to `0010` are applied.
+  **`0011_v1_review_fixes.sql` was still pending** when this was written, and the
+  current `release/v1` code needs it (member cards, account removal,
+  `profiles.removed_at`, the PM give-away schedule rules, the sign-up lockdown).
+  Apply it with `npm run db:migrate` before or with the next production deploy,
+  then check `npm run db:migrate -- --status` shows everything applied. Don't
+  edit applied migrations; add new numbered files.
+- **No real users yet:** no members, no admins and an empty roster.
+- **Launch checklist** (`docs/DEPLOY.md` "First launch checklist"):
+  - Done: the VAPID keys and `PUSH_WEBHOOK_SECRET` exist in Vercel (they come
+    down with `vercel env pull`; confirm they are set for Production with
+    `vercel env ls`), `pg_net` is installed, and the database's
+    `push_webhook_url` and `push_webhook_secret` are set.
+  - Not done yet: Brian signs up in the app and is made the first admin
+    (`node scripts/db/make-admin.mjs <his email>`), the roster upload
+    (`docs/ADMIN-GUIDE.md` section 2), and a test alert on an installed iPhone.
+  - Not checked: Supabase ▸ Authentication "Allow new users to sign up" off,
+    and a hand-run of the GitHub Keepalive workflow.
+- **Before calling v1 finished:** `npm run check` and `npm run build` pass,
+  `node scripts/smoke/live-smoke.mjs` and `node scripts/smoke/ui-tour.mjs` run
+  clean against production, and someone walks through `docs/USER-GUIDE.md` on
+  a phone.
 
 ## 3. Services
 
@@ -53,7 +73,7 @@ record, and members acknowledge that once.
 |---|---|
 | **Vercel** | Project `sffd-shiftswap`, id `prj_bu8GRjkHNirIdE1hqvMe5LlUpFEy`, team `team_9KHmhLMjNKAUp6suv3umdjdl`, Hobby plan, Node 24.x. Production URL <https://sffd-shiftswap.vercel.app>. Preview URLs are behind Vercel Authentication (sign in to Vercel to open them). The Vercel CLI on Brian's PC is logged in, and the local clone is linked (`vercel link`). |
 | **Supabase** (via the Vercel Marketplace) | Resource `sffd-shiftswap-db`, project ref `xyywfujcjqadoldmydef`, region `sfo1`, **free plan**, Postgres 17. Billed through Brian's Vercel account; open it from Vercel ▸ Storage. The integration manages the Supabase environment variables in Vercel. |
-| **GitHub** | `TrickyBAM/sffd-shiftswap`, default branch `main`. v1 work is on `release/v1`. Workflows: `.github/workflows/ci.yml` (lint, typecheck, tests, build) and `keepalive.yml` (daily ping). Old branches `master` and `codex/bootstrap` hold a 2025 Firebase version and are stale. |
+| **GitHub** | `TrickyBAM/sffd-shiftswap`, default branch `main`. v1 work is on `release/v1`. **Not connected to Vercel**: deploys are made with the Vercel CLI. Workflows: `.github/workflows/ci.yml` (lint, typecheck, tests, build) and `keepalive.yml` (daily ping). Old branches `master` and `codex/bootstrap` hold a 2025 Firebase version and are stale. |
 
 The local Windows clone is
 `C:\Users\TrickyBAM\Documents\New project\codex-repos\sffd-shiftswap`.
@@ -103,7 +123,7 @@ src/lib/api          typed data layer         src/lib/sffd       dates, tours, s
 src/lib/supabase     client/server/admin/session clients      src/lib/push  client (subscribe) + server (send)
 src/components/ui    primitives               src/components     shell, header, navigation, pickers, providers
 supabase/migrations  schema                   tests/unit, tests/db  Vitest suites
-scripts/db           migrate, make-admin, set-app-config       scripts/smoke  live end-to-end smoke test
+scripts/db           migrate, make-admin, set-app-config       scripts/smoke  live smoke test, UI screenshot tour
 ```
 
 ## 5. Common tasks
@@ -147,9 +167,23 @@ dashboard ▸ Database ▸ Extensions, or SQL editor). Full steps are in
 **Generate VAPID keys** (only if they don't exist yet; changing them breaks
 every existing push subscription): `npx web-push generate-vapid-keys`.
 
-**Smoke-test the live database** before a release:
-`node scripts/smoke/live-smoke.mjs`. It creates `e2e-*@example.com` members,
-runs the trade flows and deletes everything it made.
+**Smoke-test the live app** before a release:
+
+- `node scripts/smoke/live-smoke.mjs` creates `e2e-*@example.com` members,
+  runs the trade flows against the real database and deletes everything it made.
+- `node scripts/smoke/ui-tour.mjs` seeds the same kind of throwaway members,
+  signs in as each one in a phone-sized Playwright browser, screenshots every
+  screen into `.tmp-test/shots/`, reports console errors and failed requests,
+  then cleans up. `--base <url>` points it at a preview or local server;
+  `--keep` leaves the data for a manual look.
+
+**Remove a member's account** (they asked to leave): Admin ▸ Members ▸ the
+member ▸ **Remove member** (`docs/ADMIN-GUIDE.md` section 5). It runs
+`admin_remove_member` as the admin, then the `removeMember` server action
+(`src/app/(app)/admin/actions.ts`) swaps the login email for
+`removed+<id>@shiftswap.invalid` and bans the login with the secret key. Never
+delete the auth user in the Supabase dashboard: foreign keys block it for anyone
+who ever traded, and it would skip the clean-up.
 
 ## 6. Testing strategy
 
@@ -170,7 +204,9 @@ runs the trade flows and deletes everything it made.
   production build with placeholder env on every push to `main` or `release/**`
   and on every pull request.
 - **Live smoke** (`scripts/smoke/live-smoke.mjs`) against the real project, by hand.
-- There are no browser end-to-end tests yet (see the backlog).
+- **UI tour** (`scripts/smoke/ui-tour.mjs`), by hand: screenshots of every
+  screen plus console errors. It looks at screens but asserts no flows, so there
+  are still no automated browser end-to-end tests (see the backlog).
 
 ## 7. Known limitations
 

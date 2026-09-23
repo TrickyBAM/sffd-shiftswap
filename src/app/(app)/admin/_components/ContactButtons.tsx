@@ -1,6 +1,6 @@
 import { Mail, MessageSquare, Phone } from 'lucide-react'
 import { buttonClasses, cn } from '@/components/ui'
-import { smsHref, telHref } from '../_lib/format'
+import { smsHref, telHref } from '@/lib/format'
 
 export interface ContactButtonsProps {
   name: string

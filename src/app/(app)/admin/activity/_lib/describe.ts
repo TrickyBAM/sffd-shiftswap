@@ -1,7 +1,7 @@
 // Turns audit_log entries into plain-English lines for /admin/activity:
 // "Brian Machado approved Mike Lee", "Ana Cruz posted Oct 14 24-Hour".
 // Action names and `details` shapes come from the private.audit(...) calls in
-// supabase/migrations/0005-0008.
+// supabase/migrations/0005-0008 and 0011.
 
 import { formatDate, isYmd } from '@/lib/sffd/dates'
 import { stationLabel } from '@/lib/sffd/stations'
@@ -63,7 +63,7 @@ export const ACTIVITY_FILTER_GROUPS: ReadonlyArray<{
     label: 'Everything by type',
     options: [
       { value: '', label: 'All activity' },
-      { value: 'member.', label: 'Sign-ups and profile changes' },
+      { value: 'member.', label: 'Sign-ups, profile changes and removals' },
       { value: 'shift.', label: 'Posts' },
       { value: 'trade.', label: 'Trades' },
       { value: 'admin.', label: 'Admin actions' },
@@ -77,6 +77,7 @@ export const ACTIVITY_FILTER_GROUPS: ReadonlyArray<{
       { value: 'admin.member_approved', label: 'Approved by an admin' },
       { value: 'admin.member_rejected', label: 'Turned down' },
       { value: 'admin.member_status', label: 'Suspended or reactivated' },
+      { value: 'member.removed', label: 'Accounts removed' },
       { value: 'admin.member_role', label: 'Admin access changes' },
       { value: 'admin.member_updated', label: 'Member details edited' },
       { value: 'admin.password_reset', label: 'Password resets' },
@@ -234,10 +235,29 @@ export function describeActivity(entry: AuditEntry, ctx: ActivityContext): Activ
     case 'admin.member_status': {
       const to = str(d.to)
       const posts = num(d.posts_cancelled) ?? 0
-      const extra = to === 'suspended' && posts > 0 ? `${posts} open post${posts === 1 ? '' : 's'} taken down.` : null
+      const extra =
+        to === 'suspended' && posts > 0
+          ? `${posts} open post${posts === 1 ? '' : 's'} taken down.`
+          : to === 'approved' && d.was_removed === true
+            ? 'Their account had been removed.'
+            : null
       return {
         text: to === 'suspended' ? `${actor} suspended ${target}` : `${actor} reactivated ${target}`,
         detail: [reason, extra].filter(Boolean).join(' ') || null,
+        href: memberHref,
+        kind: 'admin',
+      }
+    }
+    case 'member.removed': {
+      const posts = num(d.posts_cancelled) ?? 0
+      const upcoming = num(d.upcoming_trades) ?? 0
+      const extra = [
+        posts > 0 ? `${posts} open post${posts === 1 ? '' : 's'} taken down.` : null,
+        upcoming > 0 ? `${upcoming} confirmed trade${upcoming === 1 ? '' : 's'} still coming up.` : null,
+      ]
+      return {
+        text: `${actor} removed ${target}'s account`,
+        detail: [reason, ...extra].filter(Boolean).join(' ') || null,
         href: memberHref,
         kind: 'admin',
       }

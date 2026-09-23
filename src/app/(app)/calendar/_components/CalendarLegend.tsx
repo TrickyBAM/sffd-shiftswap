@@ -1,35 +1,40 @@
 import type { ReactNode } from 'react'
-import { cn } from '@/components/ui'
-import { BAR_CLASS } from './tones'
+import { PM_GIVEN_AWAY_HOURS } from '@/lib/schedule/effective'
+import { BarMark } from './BarMark'
 
-function Bar({ className }: { className: string }) {
-  return <span aria-hidden="true" className={cn('h-1.5 w-6 shrink-0 rounded-full', className)} />
+/** A small cell-shaped swatch with the red outline of a covered day. */
+function Outlined({ children }: { children?: ReactNode }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex h-4 w-6 shrink-0 flex-col justify-end rounded-md p-[3px] ring-2 ring-inset ring-cal-work"
+    >
+      {children}
+    </span>
+  )
 }
 
+// Same marks as the grid (BarMark), in words as well as colour. Names match
+// the rest of the app: "Your open post" (orange everywhere), "SwapMatch".
 const ITEMS: ReadonlyArray<{ key: string; swatch: ReactNode; label: string }> = [
-  { key: 'working', swatch: <Bar className={BAR_CLASS.working} />, label: "You're on duty" },
-  { key: 'openPost', swatch: <Bar className={BAR_CLASS.openPost} />, label: 'Your open post' },
+  { key: 'working', swatch: <BarMark kind="working" className="w-6 shrink-0" />, label: "You're on duty" },
+  { key: 'openPost', swatch: <BarMark kind="openPost" className="w-6 shrink-0" />, label: 'Your open post' },
   {
     key: 'available',
-    swatch: (
-      <span
-        aria-hidden="true"
-        className={cn(
-          'flex h-4 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold leading-none text-on-accent',
-          BAR_CLASS.available,
-        )}
-      >
-        2
-      </span>
-    ),
+    swatch: <BarMark kind="available" count={2} className="w-6 shrink-0" />,
     label: 'Open shifts you could take',
   },
-  { key: 'covering', swatch: <Bar className={BAR_CLASS.covering} />, label: "You're covering someone" },
-  { key: 'swap', swatch: <Bar className={BAR_CLASS.swap} />, label: 'SwapMatch day' },
+  { key: 'covering', swatch: <BarMark kind="covering" className="w-6 shrink-0" />, label: "You're covering someone" },
+  { key: 'swap', swatch: <BarMark kind="swap" className="w-6 shrink-0" />, label: 'SwapMatch day' },
+  { key: 'givenAway', swatch: <Outlined />, label: 'Someone covers your shift' },
   {
-    key: 'givenAway',
-    swatch: <span aria-hidden="true" className="h-4 w-6 shrink-0 rounded-md ring-2 ring-inset ring-cal-work" />,
-    label: 'Someone is covering you',
+    key: 'pmGivenAway',
+    swatch: (
+      <Outlined>
+        <BarMark kind="working" className="h-1 w-full" />
+      </Outlined>
+    ),
+    label: `You work ${PM_GIVEN_AWAY_HOURS}, PM covered`,
   },
   {
     key: 'today',

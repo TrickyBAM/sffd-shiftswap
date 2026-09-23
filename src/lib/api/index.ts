@@ -9,7 +9,7 @@
 // Mutations that notify someone also ask /api/push/flush to deliver the alerts
 // (browser only, coalesced, fire-and-forget), so pages don't need to.
 
-export { callRpc, isUuid, resolveUserId, type CountedPage, type Page, type Sb } from './core'
+export { callRpc, isUuid, resolveUserId, sessionCheckError, type CountedPage, type Page, type Sb } from './core'
 export * from './admin'
 export * from './messages'
 export * from './notifications'

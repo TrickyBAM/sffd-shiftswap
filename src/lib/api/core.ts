@@ -6,7 +6,7 @@
 // AppError (src/lib/errors.ts) whose message is safe to show.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { AppError, toAppError } from '@/lib/errors'
+import { AppError, NETWORK_MESSAGE, toAppError } from '@/lib/errors'
 import { isYmd, type Ymd } from '@/lib/sffd/dates'
 import type { RpcArgs, RpcName, RpcReturns } from '@/lib/types/database'
 
@@ -108,16 +108,41 @@ export async function resolveUserId(sb: Sb, userId?: string | null): Promise<str
   try {
     res = await sb.auth.getClaims()
   } catch (err) {
-    throw toAppError(err)
+    throw sessionCheckError(err)
   }
-  if (res.error) {
-    const error = toAppError(res.error)
-    // A missing or unusable session is "signed out", whatever auth called it.
-    throw error.code === 'NETWORK' ? error : new AppError('NOT_SIGNED_IN', 'Please sign in again.', { cause: res.error })
-  }
+  if (res.error) throw sessionCheckError(res.error)
   const sub = res.data?.claims?.sub
   if (typeof sub !== 'string' || !sub) throw new AppError('NOT_SIGNED_IN', 'Please sign in again.')
   return sub
+}
+
+/**
+ * What a failed session check means. An Auth outage (no connection, 5xx, a
+ * timeout) must never look like "signed out" — the layouts show an error
+ * screen with Try again instead of bouncing the member to /login (§7.1, §9).
+ * Only a 4xx answer from Auth or an auth-js "no/unusable session" error means
+ * the session is really gone.
+ */
+export function sessionCheckError(error: unknown): AppError {
+  const appError = toAppError(error)
+  if (appError.code === 'NOT_SIGNED_IN' || appError.code === 'NETWORK') return appError
+  const status = appError.status
+  if (status !== null && status >= 500) {
+    // An Auth server error is an outage, not a verdict on the session.
+    return new AppError('NETWORK', NETWORK_MESSAGE, { cause: error, status, details: appError.details })
+  }
+  // Too many requests / timed out: try again later, the session may be fine.
+  if (status === 408 || status === 429) return appError
+  if (status !== null && status >= 400) {
+    return new AppError('NOT_SIGNED_IN', 'Please sign in again.', { cause: error, status, details: appError.details })
+  }
+  const name = typeof (error as { name?: unknown } | null)?.name === 'string' ? (error as { name: string }).name : ''
+  if (/^Auth\w*Error$/.test(name) && name !== 'AuthUnknownError' && name !== 'AuthRetryableFetchError') {
+    // auth-js rejected the stored session itself (bad or missing token).
+    return new AppError('NOT_SIGNED_IN', 'Please sign in again.', { cause: error, details: appError.details })
+  }
+  // Anything else (a bug, an unexpected response): not "signed out" either.
+  return appError
 }
 
 // ---------------------------------------------------------------------------

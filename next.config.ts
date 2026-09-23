@@ -7,7 +7,9 @@ const isVercelPreview = process.env.VERCEL_ENV === "preview";
 /**
  * Deploy version, baked into the client bundle. PWARegister registers
  * `/sw.js?v=<version>`, so each deploy installs a fresh service worker (new cache names,
- * re-cached offline page) and the "New version available" prompt appears.
+ * re-cached offline page) and the "New version available" prompt appears. /sw.js is
+ * also served with an `X-App-Version` header so an installed app that stays open for
+ * days can notice a new deploy when it comes back to the foreground.
  */
 const appVersion = (
   process.env.VERCEL_GIT_COMMIT_SHA ??
@@ -119,6 +121,11 @@ const nextConfig: NextConfig = {
             key: "Service-Worker-Allowed",
             value: "/",
           },
+          {
+            // Read by PWARegister on resume to detect a new deploy (NEXT-05).
+            key: "X-App-Version",
+            value: appVersion,
+          },
         ],
       },
       {
@@ -133,14 +140,22 @@ const nextConfig: NextConfig = {
     ];
   },
   async redirects() {
-    // Installed PWAs and old bookmarks may still open the pre-v1 URLs (ARCHITECTURE §7.1).
-    // Temporary (307) so browsers don't cache them forever.
+    // The one place legacy URLs are handled (ARCHITECTURE §7.1). Installed PWAs and old
+    // bookmarks may still open the pre-v1 URLs; next.config redirects run before the
+    // proxy, for signed-in and signed-out visitors alike. Temporary (307) so browsers
+    // don't cache them forever. The pre-v1 email flows (password reset, email
+    // confirmation, auth callback) no longer exist: passwords are reset by an admin, and
+    // /login says so.
     return [
       { source: "/dashboard", destination: "/calendar", permanent: false },
       { source: "/shift-board", destination: "/board", permanent: false },
       { source: "/post-shift", destination: "/post", permanent: false },
       { source: "/notifications", destination: "/alerts", permanent: false },
       { source: "/schedule-setup", destination: "/profile", permanent: false },
+      { source: "/forgot-password", destination: "/login", permanent: false },
+      { source: "/reset-password", destination: "/login", permanent: false },
+      { source: "/verify-email", destination: "/login", permanent: false },
+      { source: "/auth/callback", destination: "/login", permanent: false },
     ];
   },
 };

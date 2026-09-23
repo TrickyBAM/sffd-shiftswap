@@ -5,11 +5,12 @@ import Link from 'next/link'
 import { ClipboardList, Trash2 } from 'lucide-react'
 import { Badge, Button, Card, EmptyState, ErrorState, Field, LoadingBlock, Select, cn } from '@/components/ui'
 import { deleteRosterEntry, listRoster, type Sb } from '@/lib/api'
+import { plural, tourLabel } from '@/lib/format'
 import { createClient } from '@/lib/supabase/client'
 import type { RosterEntry } from '@/lib/types/database'
 import { Pager, SearchField } from '../../_components/ListControls'
 import { ReasonConfirmDialog } from '../../_components/ReasonConfirmDialog'
-import { plural, stationText, tourText } from '../../_lib/format'
+import { stationText } from '../../_lib/format'
 import { fetchMemberNames } from '../../_lib/queries'
 import { useAsyncData, useDebouncedValue } from '../../_lib/useAsyncData'
 
@@ -52,7 +53,7 @@ function entryFacts(entry: RosterEntry): string {
     entry.employee_id ? `ID ${entry.employee_id}` : null,
     entry.rank,
     typeof entry.station === 'number' ? stationText(entry.station) : null,
-    typeof entry.tour === 'number' ? tourText(entry.tour) : null,
+    typeof entry.tour === 'number' ? tourLabel(entry.tour) : null,
   ]
     .filter(Boolean)
     .join(' · ')

@@ -5,9 +5,21 @@
 //
 // Creates an already-confirmed account with the service-role client. Filters,
 // cheapest first: input validation, honeypot, "filled in under 3 seconds",
-// then a per-IP rate limit (5 per hour). Never throws: every outcome is a
-// typed SignupResult with a friendly message. Never logs the password, the
-// secret key or the IP.
+// then two rate limits (SEC-2, SEC-5):
+//   - per email address: EMAIL_LIMIT tries an hour, so nobody can keep
+//     probing one address (and one person retrying doesn't use up the
+//     network's allowance);
+//   - per network: NETWORK_LIMIT sign-ups an hour, high enough for a whole
+//     crew signing up together on station Wi-Fi (one public IP). IPv6
+//     clients count by their /64 network.
+// Every allowed try counts, including ones Supabase then refuses.
+//
+// "An account with this email already exists" is kept on purpose: with no
+// sign-up emails there is no other way to tell a member they already signed
+// up, and the per-email limit caps how often any one address can be checked.
+//
+// Never throws: every outcome is a typed SignupResult with a friendly
+// message. Never logs the password, the secret key, the IP or the email.
 
 import { headers } from 'next/headers'
 import { signupRateCheck } from '@/lib/api'
@@ -15,7 +27,14 @@ import { getServerEnv } from '@/lib/env'
 import { toAppError } from '@/lib/errors'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { signupRequestSchema } from '../_lib/validation'
-import { checkFormToken, clientIpFrom, hashClientIp } from './_lib/guard'
+import { checkFormToken, clientIpFrom, hashClientIp, hashEmailKey } from './_lib/guard'
+import {
+  EMAIL_LIMIT,
+  EMAIL_LIMIT_MESSAGE,
+  LIMIT_WINDOW_MINUTES,
+  NETWORK_LIMIT,
+  NETWORK_LIMIT_MESSAGE,
+} from './_lib/limits'
 import { isSignupField, type SignupResult } from './_lib/result'
 
 const GENERIC_FAILURE = "We couldn't create your account. Refresh the page and try again."
@@ -63,17 +82,23 @@ async function createAccount(input: unknown): Promise<SignupResult> {
       break
   }
 
+  const admin = createAdminClient()
+  const perHour = { windowMinutes: LIMIT_WINDOW_MINUTES }
+
+  // The email first: someone retrying one address stops here, without using
+  // up the network's allowance that the rest of the crew shares.
+  const emailKey = hashEmailKey(email, supabaseSecretKey)
+  if (!(await signupRateCheck(admin, emailKey, { ...perHour, max: EMAIL_LIMIT }))) {
+    return { ok: false, message: EMAIL_LIMIT_MESSAGE }
+  }
+
   const headerList = await headers()
-  const ipKey = hashClientIp(
+  const networkKey = hashClientIp(
     clientIpFrom((name) => headerList.get(name)),
     supabaseSecretKey,
   )
-  const admin = createAdminClient()
-  if (!(await signupRateCheck(admin, ipKey))) {
-    return {
-      ok: false,
-      message: 'Too many sign-ups from this network. Wait an hour and try again, or ask a ShiftSwap admin for help.',
-    }
+  if (!(await signupRateCheck(admin, networkKey, { ...perHour, max: NETWORK_LIMIT }))) {
+    return { ok: false, message: NETWORK_LIMIT_MESSAGE }
   }
 
   const { error } = await admin.auth.admin.createUser({

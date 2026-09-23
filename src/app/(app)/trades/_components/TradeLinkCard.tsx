@@ -4,8 +4,15 @@ import { ChevronRight } from 'lucide-react'
 import { cn } from '@/components/ui/cn'
 import { formatDate, type Ymd } from '@/lib/sffd/dates'
 
+/**
+ * Tile tones follow the Calendar legend: red = a day I'm on (or my shift
+ * someone covers), orange = my open post, purple = SwapMatch, neutral = I'm
+ * covering someone, dim = past.
+ */
+export type DateTileTone = 'neutral' | 'red' | 'orange' | 'purple' | 'dim'
+
 /** Calendar-page style date block ("SEP / 30 / WED"). Decorative: the row text carries the date. */
-export function DateTile({ date, tone = 'neutral' }: { date: Ymd; tone?: 'neutral' | 'red' | 'purple' | 'dim' }) {
+export function DateTile({ date, tone = 'neutral' }: { date: Ymd; tone?: DateTileTone }) {
   const [month] = formatDate(date, 'short').split(' ')
   const [weekday] = formatDate(date, 'weekday').split(',')
   return (
@@ -14,6 +21,7 @@ export function DateTile({ date, tone = 'neutral' }: { date: Ymd; tone?: 'neutra
       className={cn(
         'flex w-12 shrink-0 flex-col items-center rounded-xl border py-1.5 leading-none',
         tone === 'red' && 'border-sffd-red/40 bg-sffd-red/10',
+        tone === 'orange' && 'border-accent-orange/40 bg-accent-orange/10',
         tone === 'purple' && 'border-accent-purple/40 bg-accent-purple/10',
         tone === 'dim' && 'border-line bg-elevated/60 opacity-80',
         tone === 'neutral' && 'border-line-strong bg-elevated',
@@ -30,7 +38,7 @@ export interface TradeLinkCardProps {
   /** Shift id for /trades/<id>. */
   shiftId: string
   date: Ymd
-  dateTone?: 'neutral' | 'red' | 'purple' | 'dim'
+  dateTone?: DateTileTone
   title: ReactNode
   subtitle?: ReactNode
   /** Badges / extra lines under the subtitle. */

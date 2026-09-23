@@ -305,3 +305,40 @@ describe('summary', () => {
     expect(listDates([])).toBe('')
   })
 })
+
+describe('a day whose PM I gave away (TF-1)', () => {
+  // 10-06 is a tour-2 day; Mike covers its PM (1600–0800), so I still work 0800–1600.
+  const PM_GIVEN = shift({
+    id: 'pm1',
+    date: '2026-10-06',
+    shift_type: 'PM',
+    status: 'covered',
+    coverer_id: MIKE,
+    coverer_name: 'Mike Lee',
+  })
+  const PM_CTX = context(TOUR, NOW, [...SHIFTS, PM_GIVEN])
+
+  it("can't be posted again", () => {
+    expect(dateBlock('2026-10-06', PM_CTX)).toBe('pm-given-away')
+    expect(postableTourDays(PM_CTX)).not.toContain('2026-10-06')
+    expect(validatePost(draft({ date: '2026-10-06' }), PM_CTX).date).toBe(
+      "You already gave away that day's PM and still work 0800–1600, so it can't be posted again.",
+    )
+    expect(parseDateParam('2026-10-06', PM_CTX)).toEqual({
+      date: null,
+      notice:
+        "Tuesday, October 6, 2026 can't be posted. You already gave away that day's PM and still work 0800–1600, so it can't be posted again.",
+    })
+  })
+
+  it('is still a working day, so it is not offered as a return date', () => {
+    expect(returnDateBlock('2026-10-06', PM_CTX, { postDate: '2026-09-26', shiftType: '24-Hour' })).toBe('working')
+  })
+
+  it('works the same for members without a tour', () => {
+    const pm = shift({ id: 'pm2', date: '2026-09-27', shift_type: 'PM', status: 'covered', coverer_id: MIKE })
+    const noTour = context(null, NOW, [...SHIFTS, pm])
+    expect(dateBlock('2026-09-27', noTour)).toBe('pm-given-away')
+    expect(returnDateBlock('2026-09-27', noTour, { postDate: '2026-09-24', shiftType: '24-Hour' })).toBe('working')
+  })
+})

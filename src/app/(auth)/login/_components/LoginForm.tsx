@@ -1,17 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { FormAlert } from '@/components/forms/FormAlert'
+import { PasswordInput } from '@/components/forms/PasswordInput'
 import { Button } from '@/components/ui/Button'
 import { Field } from '@/components/ui/Field'
 import { Input } from '@/components/ui/Input'
 import { toAppError } from '@/lib/errors'
+import { clearSnapshots } from '@/lib/offline-cache'
 import { createClient } from '@/lib/supabase/client'
-import { FormAlert } from '../../_components/FormAlert'
-import { PasswordInput } from '../../_components/PasswordInput'
 import { HOME_PATH } from '../../_lib/safe-next'
 import { loginSchema } from '../../_lib/validation'
 
@@ -24,6 +25,14 @@ export function LoginForm({ next }: LoginFormProps) {
   const router = useRouter()
   const [formError, setFormError] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
+
+  // Nobody is signed in on this device here (the proxy sends signed-in
+  // visitors on to the app), so no member's offline copies of trades and
+  // contacts should stay behind, e.g. after a session ran out without
+  // "Sign out" (SEC-7).
+  useEffect(() => {
+    clearSnapshots()
+  }, [])
 
   const {
     register,

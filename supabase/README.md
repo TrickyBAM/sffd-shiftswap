@@ -13,6 +13,7 @@ contract they implement. `archive/` holds the superseded pre-v1 SQL.
 | `0005`–`0008` | the RPCs (members, shifts & trades, messages, admin) |
 | `0009_public_push_realtime.sql` | `app_keepalive`, `calendar_feed`, `claim_push_batch`, `signup_rate_check`, push webhook trigger, realtime publication |
 | `0010_privileges.sql` | the complete function API surface per role |
+| `0011_v1_review_fixes.sql` | review fixes: PM give-away keeps the day worked, SwapMatch-aware alerts, `member_cards`, `admin_remove_member` + `profiles.removed_at`, ledger counts a SwapMatch once, commit-time block on unconfirmed (public API) sign-ups |
 
 ## Applying migrations
 

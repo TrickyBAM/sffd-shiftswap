@@ -2,10 +2,15 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
+  useEffect,
   useId,
+  useRef,
+  useState,
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
 } from 'react'
 import Link from 'next/link'
 import { cn } from './cn'
@@ -26,6 +31,97 @@ function useTabs(component: string): TabsContextValue {
 
 const tabId = (base: string, value: string) => `${base}-tab-${value}`
 const panelId = (base: string, value: string) => `${base}-panel-${value}`
+
+// Sizing (UX-08): four tabs with count bubbles fit a 375 px phone (tight
+// padding and 13 px labels below `sm`); more than fit (the five admin
+// sections) scroll sideways with a fade at the edge that has more.
+const TAB_BASE =
+  'inline-flex min-h-11 flex-1 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-xl px-1.5 text-[13px] font-semibold transition-colors sm:gap-1.5 sm:px-3 sm:text-sm'
+const TAB_SELECTED = 'bg-sffd-red text-white'
+const TAB_IDLE = 'text-fg-muted hover:bg-white/[0.05] hover:text-fg'
+const COUNT_BUBBLE =
+  'inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none sm:h-5 sm:min-w-5 sm:px-1.5 sm:text-[11px]'
+
+function countText(count: number): string {
+  return count > 99 ? '99+' : String(count)
+}
+
+/**
+ * Horizontal overflow state of a scroll container, and keeping the selected
+ * item in view. Re-measured on scroll and resize.
+ */
+function useScrollEdges(ref: RefObject<HTMLElement | null>, selectedKey: string, selector: string) {
+  const [edges, setEdges] = useState({ start: false, end: false })
+
+  const measure = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    const max = el.scrollWidth - el.clientWidth
+    const start = el.scrollLeft > 1
+    const end = max - el.scrollLeft > 1
+    setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }))
+  }, [ref])
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    measure()
+    el.addEventListener('scroll', measure, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(el)
+    window.addEventListener('resize', measure)
+    return () => {
+      el.removeEventListener('scroll', measure)
+      observer?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [ref, measure])
+
+  // Scroll the selected tab into view (only this list, never the page).
+  const firstRun = useRef(true)
+  useEffect(() => {
+    const list = ref.current
+    const item = list?.querySelector<HTMLElement>(selector)
+    if (!list || !item) return
+    const pad = 24
+    // Position of the item inside the scrolled content, whatever the current scroll.
+    const left = item.getBoundingClientRect().left - list.getBoundingClientRect().left + list.scrollLeft
+    const right = left + item.getBoundingClientRect().width
+    let target: number | null = null
+    if (left - pad < list.scrollLeft) target = Math.max(0, left - pad)
+    else if (right + pad > list.scrollLeft + list.clientWidth) target = right + pad - list.clientWidth
+    if (target !== null) {
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+      list.scrollTo({ left: target, behavior: firstRun.current || reduce ? 'auto' : 'smooth' })
+    }
+    firstRun.current = false
+    measure()
+  }, [ref, selector, selectedKey, measure])
+
+  return edges
+}
+
+/** Fades over the edge(s) of a scrolling tab strip that have more tabs. */
+function EdgeFades({ start, end }: { start: boolean; end: boolean }) {
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute inset-y-px left-px w-8 rounded-l-2xl bg-linear-to-r from-card to-transparent transition-opacity',
+          start ? 'opacity-100' : 'opacity-0',
+        )}
+      />
+      <span
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute inset-y-px right-px w-8 rounded-r-2xl bg-linear-to-l from-card to-transparent transition-opacity',
+          end ? 'opacity-100' : 'opacity-0',
+        )}
+      />
+    </>
+  )
+}
 
 export interface TabsProps {
   value: string
@@ -66,6 +162,10 @@ export interface TabListProps {
 }
 
 export function TabList({ label, className, children }: TabListProps) {
+  const { value } = useTabs('TabList')
+  const listRef = useRef<HTMLDivElement>(null)
+  const edges = useScrollEdges(listRef, value, '[role="tab"][aria-selected="true"]')
+
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const tabs = Array.from(
       event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]:not([disabled])'),
@@ -84,16 +184,17 @@ export function TabList({ label, className, children }: TabListProps) {
   }
 
   return (
-    <div
-      role="tablist"
-      aria-label={label}
-      onKeyDown={onKeyDown}
-      className={cn(
-        'scrollbar-none flex gap-1 overflow-x-auto rounded-2xl border border-line bg-card p-1',
-        className,
-      )}
-    >
-      {children}
+    <div className={cn('relative', className)}>
+      <div
+        ref={listRef}
+        role="tablist"
+        aria-label={label}
+        onKeyDown={onKeyDown}
+        className="scrollbar-none flex gap-0.5 overflow-x-auto overscroll-x-contain rounded-2xl border border-line bg-card p-1 sm:gap-1"
+      >
+        {children}
+      </div>
+      <EdgeFades start={edges.start} end={edges.end} />
     </div>
   )
 }
@@ -121,21 +222,16 @@ export function Tab({ value, count, disabled = false, className, children }: Tab
       disabled={disabled}
       onClick={() => setValue(value)}
       className={cn(
-        'inline-flex min-h-11 flex-1 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-sm font-semibold transition-colors',
-        selected ? 'bg-sffd-red text-white' : 'text-fg-muted hover:bg-white/[0.05] hover:text-fg',
+        TAB_BASE,
+        selected ? TAB_SELECTED : TAB_IDLE,
         'disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
     >
       {children}
       {count && count > 0 ? (
-        <span
-          className={cn(
-            'inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold',
-            selected ? 'bg-white/25 text-white' : 'bg-sffd-red text-white',
-          )}
-        >
-          {count > 99 ? '99+' : count}
+        <span className={cn(COUNT_BUBBLE, selected ? 'bg-white/25 text-white' : 'bg-sffd-red text-white')}>
+          {countText(count)}
         </span>
       ) : null}
     </button>
@@ -177,34 +273,40 @@ export interface LinkTabsProps {
   className?: string
 }
 
-/** Segmented navigation between sibling routes (e.g. the /admin sections). */
+/**
+ * Segmented navigation between sibling routes (e.g. the /admin sections).
+ * Scrolls sideways when the items don't fit, with an edge fade and the active
+ * item kept in view.
+ */
 export function LinkTabs({ label, items, activeHref, className }: LinkTabsProps) {
+  const listRef = useRef<HTMLUListElement>(null)
+  const edges = useScrollEdges(listRef, activeHref, '[aria-current="page"]')
+
   return (
-    <nav aria-label={label} className={cn('scrollbar-none overflow-x-auto', className)}>
-      <ul className="flex gap-1 rounded-2xl border border-line bg-card p-1">
+    <nav aria-label={label} className={cn('relative', className)}>
+      <ul
+        ref={listRef}
+        className="scrollbar-none flex gap-0.5 overflow-x-auto overscroll-x-contain rounded-2xl border border-line bg-card p-1 sm:gap-1"
+      >
         {items.map((item) => {
           const active = item.href === activeHref
           return (
-            <li key={item.href} className="flex-1 shrink-0">
+            <li key={item.href} className="flex flex-1 shrink-0">
               <Link
                 href={item.href}
                 aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'flex min-h-11 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-sm font-semibold transition-colors',
-                  active ? 'bg-sffd-red text-white' : 'text-fg-muted hover:bg-white/[0.05] hover:text-fg',
-                )}
+                className={cn(TAB_BASE, 'w-full', active ? TAB_SELECTED : TAB_IDLE)}
               >
                 {item.label}
                 {item.count && item.count > 0 ? (
-                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/20 px-1.5 text-[11px] font-bold">
-                    {item.count > 99 ? '99+' : item.count}
-                  </span>
+                  <span className={cn(COUNT_BUBBLE, 'bg-white/20')}>{countText(item.count)}</span>
                 ) : null}
               </Link>
             </li>
           )
         })}
       </ul>
+      <EdgeFades start={edges.start} end={edges.end} />
     </nav>
   )
 }

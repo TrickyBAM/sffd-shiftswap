@@ -4,11 +4,15 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
+import { getMyProfile } from '@/lib/api'
+import { AppError, toAppError } from '@/lib/errors'
 import { createClient } from '@/lib/supabase/client'
 
 /**
@@ -37,6 +41,8 @@ export interface MyProfile {
   calendar_token: string
   approved_at: string | null
   approved_by: string | null
+  /** Set when an admin removed the member (migration 0011); absent on older databases. */
+  removed_at?: string | null
   created_at: string
   updated_at: string
 }
@@ -55,6 +61,25 @@ export interface ProfileContextValue {
 
 const ProfileContext = createContext<ProfileContextValue | null>(null)
 
+/** Least time between two background re-checks of the profile. */
+export const PROFILE_RECHECK_MS = 60_000
+
+/**
+ * True when a fresh copy of my profile means the server gates would now send me
+ * elsewhere (NEXT-08): no longer approved, removed, role changed (admin screens
+ * appear or go), a forced password change, or the row is gone. Layout gates
+ * don't re-run on client navigation, so the app reloads to run them.
+ */
+export function profileNeedsGate(current: Pick<MyProfile, 'role'>, fresh: MyProfile | null): boolean {
+  if (!fresh) return true
+  return (
+    fresh.status !== 'approved' ||
+    fresh.role !== current.role ||
+    fresh.must_change_password === true ||
+    Boolean(fresh.removed_at)
+  )
+}
+
 export interface ProfileProviderProps {
   /** The profile the server layout loaded for this request. */
   profile: MyProfile
@@ -63,6 +88,7 @@ export interface ProfileProviderProps {
 
 export function ProfileProvider({ profile: serverProfile, children }: ProfileProviderProps) {
   const router = useRouter()
+  const pathname = usePathname()
   // A client-side refresh wins until the server layout sends a newer row
   // (router.refresh() or a navigation re-renders the layout with fresh data).
   const [fetched, setFetched] = useState<{ from: MyProfile; row: MyProfile } | null>(null)
@@ -71,21 +97,78 @@ export function ProfileProvider({ profile: serverProfile, children }: ProfilePro
   const profile = fetched && fetched.from === serverProfile ? fetched.row : serverProfile
   const userId = serverProfile.id
 
+  const loadRow = useCallback(async (): Promise<MyProfile | null> => {
+    return (await getMyProfile(createClient(), userId)) as MyProfile | null
+  }, [userId])
+
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      const { data, error } = await createClient()
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single<MyProfile>()
-      if (error || !data) throw new Error("Couldn't reload your profile. Check your connection and try again.")
-      setFetched({ from: serverProfile, row: data })
+      const row = await loadRow()
+      if (!row) throw new AppError('NOT_FOUND', "Couldn't reload your profile. Check your connection and try again.")
+      setFetched({ from: serverProfile, row })
       router.refresh()
+    } catch (error) {
+      throw toAppError(error)
     } finally {
       setRefreshing(false)
     }
-  }, [router, serverProfile, userId])
+  }, [router, serverProfile, loadRow])
+
+  // Background re-check (NEXT-08): when the app comes back to the foreground or
+  // the member moves to another screen, at most once a minute, re-read my row.
+  // If an admin suspended or removed me, changed my role or forced a password
+  // change, reload so the server layout's gates run. Connection problems are
+  // ignored (the next check tries again).
+  const current = useRef(profile)
+  useEffect(() => {
+    current.current = profile
+  }, [profile])
+  const lastCheck = useRef(0)
+  const checking = useRef(false)
+
+  const recheck = useCallback(async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+    const now = Date.now()
+    if (checking.current || now - lastCheck.current < PROFILE_RECHECK_MS) return
+    checking.current = true
+    lastCheck.current = now
+    try {
+      const row = await loadRow()
+      if (profileNeedsGate(current.current, row)) {
+        window.location.reload()
+        return
+      }
+      if (row && row.updated_at !== current.current.updated_at) setFetched({ from: serverProfile, row })
+    } catch (error) {
+      // Signed out elsewhere (or the session expired): let the server send me to /login.
+      if (toAppError(error).code === 'NOT_SIGNED_IN') window.location.reload()
+    } finally {
+      checking.current = false
+    }
+  }, [loadRow, serverProfile])
+
+  useEffect(() => {
+    // The server layout just checked this profile.
+    lastCheck.current = Date.now()
+  }, [serverProfile])
+
+  useEffect(() => {
+    const onResume = () => void recheck()
+    document.addEventListener('visibilitychange', onResume)
+    window.addEventListener('focus', onResume)
+    window.addEventListener('online', onResume)
+    return () => {
+      document.removeEventListener('visibilitychange', onResume)
+      window.removeEventListener('focus', onResume)
+      window.removeEventListener('online', onResume)
+    }
+  }, [recheck])
+
+  // Client-side navigation doesn't re-run the layout gates, so re-check on screen changes too.
+  useEffect(() => {
+    void recheck()
+  }, [pathname, recheck])
 
   const value = useMemo<ProfileContextValue>(
     () => ({ profile, isAdmin: profile.role === 'admin', refresh, refreshing }),
@@ -95,14 +178,9 @@ export function ProfileProvider({ profile: serverProfile, children }: ProfilePro
   return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>
 }
 
-/** The signed-in member's profile. Only usable under the (app)/(onboard) layouts. */
+/** The signed-in member's profile. Only usable under the (app) layout. */
 export function useProfile(): ProfileContextValue {
   const ctx = useContext(ProfileContext)
   if (!ctx) throw new Error('useProfile must be used inside <ProfileProvider> (rendered by the app layout).')
   return ctx
-}
-
-/** Like useProfile, but returns null outside a ProfileProvider (shared components). */
-export function useOptionalProfile(): ProfileContextValue | null {
-  return useContext(ProfileContext)
 }

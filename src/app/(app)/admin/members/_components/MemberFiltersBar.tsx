@@ -1,16 +1,16 @@
 'use client'
 
 import { Button, Field, Select } from '@/components/ui'
-import { isMemberStatus, isRole } from '@/lib/types/database'
+import { isRole } from '@/lib/types/database'
 import { SearchField, StationFilter } from '../../_components/ListControls'
-import { DEFAULT_MEMBER_FILTERS, STATUS_OPTIONS, type MemberFilters } from '../_lib/query'
+import { DEFAULT_MEMBER_FILTERS, STATUS_OPTIONS, isMemberStatusFilter, type MemberFilters } from '../_lib/query'
 
 export interface MemberFiltersBarProps {
   value: MemberFilters
   onChange: (next: MemberFilters) => void
 }
 
-/** Search box plus status, role and station filters for the member list. */
+/** Search box plus status (including Removed), role and station filters for the member list. */
 export function MemberFiltersBar({ value, onChange }: MemberFiltersBarProps) {
   const set = <K extends keyof MemberFilters>(key: K, next: MemberFilters[K]) => onChange({ ...value, [key]: next })
   const filtered =
@@ -30,7 +30,7 @@ export function MemberFiltersBar({ value, onChange }: MemberFiltersBarProps) {
             value={value.status}
             onChange={(event) => {
               const next = event.target.value
-              set('status', next === 'all' || !isMemberStatus(next) ? 'all' : next)
+              set('status', isMemberStatusFilter(next) ? next : 'all')
             }}
           >
             {STATUS_OPTIONS.map((option) => (

@@ -81,13 +81,21 @@ Verified against the public per-tour calendars linked from sffirecu.org and the 
 - Implemented twice and tested against each other: `src/lib/sffd/tours.ts` and SQL
   `public.tour_works(smallint, date)`. `tests/unit/tours.test.ts` checks both against a fixture.
 
-**Effective schedule** for member *u* on date *d*:
+**Effective schedule** for member *u* on date *d* (corrected in migration `0011`, TF-1):
 ```
-base      = u.tour is not null and tour_works(u.tour, d)
-givenAway = exists covered shift with poster_id = u and date = d
-pickedUp  = exists covered shift with coverer_id = u and date = d
-working   = (base and not givenAway) or pickedUp
+base        = u.tour is not null and tour_works(u.tour, d)
+givenAway   = exists covered shift with poster_id = u and date = d   (either type)
+pmGivenAway = that covered shift is a PM: u still works 0800–1600
+pickedUp    = exists covered shift with coverer_id = u and date = d
+working     = (base and not givenAway) or pmGivenAway or pickedUp
 ```
+Only giving away a **24-Hour** frees the day. A PM (16:00–08:00) is the second part of a
+24-hour tour day, so after giving away only the PM the member is still on duty 0800–1600:
+the day stays red on the calendar and they can't pick up another shift that day
+(`YOU_WORK_THAT_DAY`). This holds for no-tour members too. In SQL: `public.gave_away` counts
+24-Hour give-aways only, `private.gave_away_pm` the PM ones; `effective_works`,
+`private.works_own_shift` and `my_schedule` use them. Client mirror:
+`src/lib/schedule/effective.ts` (`ScheduleDay.pmGivenAway`, `dutyHours()`, `dutySummary()`).
 (`covered` includes SwapMatch return legs, which are ordinary covered shift rows.)
 
 ## 5. Organisation data
@@ -144,6 +152,7 @@ must_change_password boolean not null default false
 notify_scope text not null default 'battalion' -- off|station|battalion|division|all (new-shift alerts)
 calendar_token uuid not null default gen_random_uuid() unique
 approved_at timestamptz, approved_by uuid references profiles
+removed_at timestamptz                        -- 0011: set by admin_remove_member; check: removed ⇒ status 'suspended'
 created_at, updated_at timestamptz not null default now()
 ```
 
@@ -271,10 +280,11 @@ Onboarding & profile
   posted = my non-cancelled posts (original legs only, excluding return legs); covered = covered shifts where I'm coverer;
   given = covered shifts where I'm poster; outstanding = my open posts not started; balance = covered − given;
   trust_score = clamp(100 − 5·(my open, not-started posts created > 7 days ago) + 3·(shifts I covered whose starts_at is within the last 30 days and in the past), 0, 100).
-- `my_ledger() returns table(partner_id uuid, partner_name text, partner_rank text, i_covered_24 int, i_covered_pm int, they_covered_24 int, they_covered_pm int, net_24 int, net_pm int, upcoming int, last_date date)` — net = I covered − they covered (positive ⇒ they owe me).
-- `my_schedule(p_from date, p_to date) returns table(date date, base boolean, given_away boolean, picked_up boolean, working boolean, open_post_id uuid, given_shift_id uuid, picked_shift_id uuid, is_swap boolean)` — max 400 days.
+- `my_ledger() returns table(partner_id uuid, partner_name text, partner_rank text, i_covered_24 int, i_covered_pm int, they_covered_24 int, they_covered_pm int, net_24 int, net_pm int, upcoming int, last_date date)` — net = I covered − they covered (positive ⇒ they owe me). `upcoming` counts **trades** that haven't started, not legs: a SwapMatch is one (0011, TF-8).
+- `my_schedule(p_from date, p_to date) returns table(date date, base boolean, given_away boolean, picked_up boolean, working boolean, open_post_id uuid, given_shift_id uuid, picked_shift_id uuid, is_swap boolean, pm_given_away boolean)` — max 400 days. `given_away` is true for either type; `pm_given_away` when only the PM was given away; `working = (base and nothing given away) or pm_given_away or picked_up` (§4; the trailing column was added in 0011).
 - `get_trade_contact(p_shift_id uuid) returns table(user_id uuid, full_name text, rank text, station int, phone text, email text)` — returns the *other* party(ies): for the poster, the coverer (if covered) and every requester with a pending/accepted request; for a requester/coverer, the poster. Nobody else.
 - `member_card(p_user_id uuid) returns jsonb` — `{full_name, rank, station, battalion, trust_score, covered, given}` for any approved member (used to help posters choose between requests). No contact info.
+- `member_cards(p_user_ids uuid[]) returns jsonb` (0011, NEXT-09) — a JSON array of the same objects plus `user_id`, in the order asked, each member once, approved members only; at most 50 distinct ids (`INVALID_INPUT` beyond that). The poster's request list loads every requester's card with one call (`getMemberCards`).
 
 Shifts & trades
 - `post_shift(p_date date, p_shift_type text, p_station int, p_return_dates date[], p_accept_limit text, p_notes text) returns uuid`
@@ -293,14 +303,14 @@ Shifts & trades
   same rank (`RANK_MISMATCH`); within accept_limit relative to shift's station vs requester's profile (`OUTSIDE_LIMIT`);
   requester not working that date (`YOU_WORK_THAT_DAY`) and not already covering a shift that date (`ALREADY_COVERING`);
   no pending request by requester on this shift (`ALREADY_REQUESTED`); if shift offers return dates: p_return_date required (`RETURN_DATE_REQUIRED`)
-  and must be one of them (`RETURN_DATE_INVALID`), and if requester has a tour the requester must be working that day by base schedule and not giving it away (`RETURN_NOT_YOUR_DAY`);
+  and must be one of them (`RETURN_DATE_INVALID`), and the requester must be able to give that day (`RETURN_NOT_YOUR_DAY`; 0011 `private.can_give_return_date`: the return shift hasn't started, it is the requester's tour day — any day with no tour — and they have no open/covered post and aren't covering anyone that day);
   if shift offers none, p_return_date must be null. Message ≤ 300. Notifies poster (`request_received`).
 - `withdraw_request(p_request_id uuid) returns void` — requester, pending only; notifies poster.
 - `decline_request(p_request_id uuid) returns void` — poster, pending only; notifies requester.
 - `confirm_request(p_request_id uuid) returns jsonb` — poster. Locks the shift row (`for update`), re-validates every request_shift rule against current data plus: the return date (if any) has not started; poster still off on the return date and has no open/covered post that date (`POSTER_WORKS_RETURN_DAY`); requester has no open/covered post on the return date. Sets shift covered (coverer, coverer_name, confirmed_at), request accepted, **all other pending requests on the shift declined** (notify each: "filled by another member"). If return_date: creates the return leg (§6.1). Notifies requester (`request_accepted`, mentions the return date for swaps). Audit. Returns `{shift_id, return_leg_id}`.
 - `request_trade_cancel(p_shift_id uuid, p_reason text) returns void` — caller must be poster or coverer of a covered, not-started shift (either leg of a swap; resolved to the original leg). Sets cancel_requested_*; notifies the other party (`cancel_requested`).
 - `respond_trade_cancel(p_shift_id uuid, p_agree boolean) returns void` — the *other* party. Agree ⇒ **undo the trade**: original leg back to `open` (coverer/confirmed cleared, cancel_* cleared) if not started else `cancelled`; return leg (if any) `cancelled`; the accepted request → `cancelled`; notify both (`trade_cancelled`). Decline ⇒ clear cancel_* and notify requester of the cancel (`cancel_declined`). Audit.
-- `withdraw_trade_cancel(p_shift_id uuid) returns void` — the member who asked.
+- `withdraw_trade_cancel(p_shift_id uuid) returns void` — the member who asked. Withdrawing, and declining through `respond_trade_cancel`, are allowed at any time, also after a leg has started, so a cancel request can never get stuck; only *agreeing* after a start is refused (`STARTED`, TF-5).
 
 Messages & notifications
 - `send_message(p_shift_id uuid, p_recipient_id uuid, p_body text) returns uuid` — sender and recipient must be {poster, X} where X has any request on the shift or is its coverer. Creates a `message` notification for the recipient (at most one unread `message` notification per (recipient, shift, sender): update the existing unread one instead of inserting).
@@ -316,11 +326,12 @@ Admin (caller must be `is_admin()`; every action audited)
 - `admin_import_roster(p_rows jsonb, p_replace boolean) returns jsonb` — rows `[{first_name,last_name,employee_id?,rank?,station?,tour?,email?,phone?}]`; validates each (bad rank/station/tour ⇒ row error); `p_replace` deletes **unclaimed** rows first; upserts on (last_key, first_key, coalesce(employee_id,'')). Returns `{inserted, updated, skipped, errors:[{row, message}]}`.
 - `admin_delete_roster_entry(p_id uuid)`.
 - `admin_cancel_post(p_shift_id uuid, p_reason text)`, `admin_void_trade(p_shift_id uuid, p_reason text)` (same effect as agreed cancel, even after start ⇒ status cancelled; notifies both `trade_voided`).
-- `admin_overview() returns jsonb` — counts: pending members, approved members, open shifts, trades this month, roster size/unclaimed.
+- `admin_remove_member(p_user_id uuid, p_reason text) returns jsonb` (0011, CC-4) — removes an account at the member's request: refuses yourself, an account already removed and the last approved admin. Sets status `suspended` (status_reason "Account removed[: reason]"), `removed_at`, role `member`; clears phone and employee ID; turns alerts off; new calendar token; deletes push subscriptions and the member's notifications; releases the roster claim; takes their posts and requests off the board exactly like a suspension; keeps name snapshots on shifts; audit `member.removed`. Returns `{posts_cancelled, requests_closed, upcoming_trades}`. `admin_update_member` refuses removed accounts; `admin_set_member_status('approved')` / `admin_approve_member` reinstate one (clears `removed_at`). The server action `removeMember` then closes the login with the service key (sign-in email replaced, login banned).
+- `admin_overview() returns jsonb` — counts: pending members, approved members, suspended members (not counting removed ones), `removed_members` (0011), open shifts, trades this month, roster size/unclaimed.
 
 Public (anon)
 - `app_keepalive() returns jsonb` — `{ok: true}` after a trivial read.
-- `calendar_feed(p_token uuid) returns table(date date, kind text, title text, details text)` — for an approved member's token: working days from today−30 to today+365 (`kind` = 'work' | 'covering' | 'covered_for_me' | 'swap'), used by the ICS route. Unknown token ⇒ empty.
+- `calendar_feed(p_token uuid) returns table(date date, kind text, title text, details text)` — for an approved member's token: working days from today−30 to today+365 (`kind` = 'work' | 'covering' | 'covered_for_me' | 'swap'), used by the ICS route. Unknown token ⇒ empty. Since 0011 a day whose PM was given away is one `work` event, "On duty 0800–1600 (Tour N)", naming who covers the PM; `covered_for_me` is only for 24-Hour give-aways.
 
 ### 6.4 Roster matching (inside `complete_onboarding`)
 
@@ -341,7 +352,9 @@ Public (anon)
 `post_shift` inserts a `new_shift` notification for each approved member where: not the poster;
 same rank; `notify_scope <> 'off'` and the shift's station is within the member's scope
 (station/battalion/division/all relative to the member's own station); the member satisfies the
-shift's accept_limit; and (member has no tour, or member is not working that date).
+shift's accept_limit; and (member has no tour, or member is not working that date). Since 0011:
+"working" follows §4 (a PM give-away day counts), and for a SwapMatch the member must be able
+to give at least one of the offered return dates (`private.can_give_return_date`, TF-3).
 
 Push: an `after insert ... for each statement` trigger on `notifications` calls
 `net.http_post(private.app_config.push_webhook_url, headers {x-webhook-secret})` **only if**
@@ -392,7 +405,10 @@ refetch, never trusted as data.
 /api/calendar/[token]  GET text/calendar (ICS)
 ```
 Legacy redirects (installed PWAs may open old URLs): `/dashboard→/calendar`,
-`/shift-board→/board`, `/post-shift→/post`, `/notifications→/alerts`, `/schedule-setup→/profile`.
+`/shift-board→/board`, `/post-shift→/post`, `/notifications→/alerts`, `/schedule-setup→/profile`,
+and the pre-v1 email flows `/forgot-password`, `/reset-password`, `/verify-email`,
+`/auth/callback` → `/login`. They live only in `next.config.ts` `redirects()` (307; Next runs
+them before the proxy), tested by `tests/unit/proxy.test.ts`.
 
 Gates (server-side, in layouts — the proxy only refreshes the session and bounces signed-out
 users): signed out → `/login?next=…`; `onboarding` → `/onboarding`; `pending|rejected|suspended`
@@ -411,10 +427,17 @@ users): signed out → `/login?next=…`; `onboarding` → `/onboarding`; `pendi
 - **Calendar colors** (legend always visible): Red = I'm working (my tour day, not given away);
   Orange = my open post; Blue = open shifts I could request that day (count badge);
   Gray = I'm covering someone; Purple = SwapMatch leg (either direction); a given-away tour day
-  shows red outline + "Covered by <name>". Tapping a day opens a bottom sheet with actions
-  (Post this shift / See N available / View trade).
-- **Board**: default filters = My Battalion + my rank; filter chips Division ▸ Battalion ▸ Station
-  (cascade) and "Only shifts I can take" (default on). Cards show date, type, station, poster,
+  shows red outline + "Covered by <name>" (a day whose PM was given away keeps the red bar:
+  "on duty 0800–1600, PM covered by <name>"). Tapping a day opens a bottom sheet with actions
+  (Post this shift / See N available / View trade). The blue count uses the Board's
+  "Only shifts I can take" query and rules in **every location** (`listBoardShifts` with
+  `eligibleFor`, then the SwapMatch return-date rule and the day rule), and "See N available"
+  opens `/board?date=<day>&scope=all`, so the Board shows exactly the shifts that were counted.
+- **Board**: default filters = My Battalion + my rank (`?scope=all` opens it on every location;
+  `?date=` shows one day); filter chips Division ▸ Battalion ▸ Station
+  (cascade) and "Only shifts I can take" (default on: my rank, within each post's limit, not
+  on days I'm on duty, cover or have a post — from `my_schedule` — and for a SwapMatch at least
+  one offered return date I could give). Cards show date, type, station, poster,
   SwapMatch return dates, limit, notes, status, and my request status. Request opens a sheet
   (pick return date for SwapMatch, optional message) and shows eligibility reasons when not
   eligible. "Load more" pagination ordered by (date, created_at, id).
@@ -447,10 +470,16 @@ src/lib/api/*.ts               typed wrappers: one function per RPC/read; return
 src/lib/errors.ts              AppError(code, message) from Supabase/PostgREST errors
 src/lib/schedule/effective.ts  client-side effective schedule from tour + trades (mirrors §4)
 src/lib/push/{client,server}.ts
+src/lib/auth/sign-out.ts       signOutOnThisDevice(): the one browser sign-out (§9)
+src/lib/pwa/update-check.ts    new-deploy check on resume (X-App-Version on /sw.js)
+src/lib/validation.ts          shared form rules (phone, password, name, employee ID)
+src/lib/format.ts              shared display helpers (relativeTime, plural, tel/sms links, tour and accept-limit labels)
 src/lib/ics.ts                 RFC 5545 generator (all-day events, CRLF, folding, escaping)
 src/lib/offline-cache.ts
-src/components/ui/*            primitives (Button, Card, Sheet, Dialog, Field, Select, Chip, Badge, Toast, EmptyState, ErrorState, Skeleton, Spinner)
-src/components/*               shared domain components (Navigation, AppHeader, ShiftCard, CalendarGrid, StationPicker, TourPicker, …)
+src/components/ui/*            primitives (Button, Card, Sheet, Dialog, ConfirmDialog, Field, Input, Chip, Badge, Tabs, Toast, EmptyState, ErrorState, Skeleton, Spinner; cn())
+src/components/forms/*         PasswordInput, FormAlert
+src/components/pickers/*       StationPicker, TourPicker
+src/components/*               shared app components (Navigation, AppShell, AppHeader, AlertsNudge, PushToggle, OfflineRibbon, PWARegister, InstallPrompt, providers/ProfileProvider)
 src/app/**                     routes per §7.1; route-specific components colocated in `_components/`
 supabase/migrations/*.sql      schema (§6)
 tests/db/*.test.ts             PGlite tests of every RPC and RLS rule
@@ -491,7 +520,8 @@ Database
 - `request_shift` also requires the TeleStaff acknowledgment (`ACK_REQUIRED`). `YOU_WORK_THAT_DAY` also applies when the requester has an **open post** that day. A shift whose poster is no longer approved is `NOT_OPEN`.
 - `shift_eligibility` returns `{eligible, reasons, valid_return_dates}`; with a null return date on a SwapMatch it evaluates every offered date.
 - Undoing a trade (agreed cancel, admin void) is refused with `ALREADY_COVERING` if it would double-book someone. Agreeing to cancel after either leg started ⇒ `STARTED` (admins can still void).
-- Suspending a member cancels their not-started open posts and closes pending requests on/by them.
+- Suspending a member cancels their not-started open posts and closes pending requests on/by them. Removing one (`admin_remove_member`, 0011) does the same through the same helper.
+- Accounts can only be created by the app (0011, SEC-6): a deferred constraint trigger on `auth.users` (`private.block_unconfirmed_signup`) refuses, at commit, any new account whose email is still unconfirmed. The app's sign-up (`auth.admin.createUser` with `email_confirm: true`) and the smoke scripts are unaffected; Supabase's public sign-up endpoint, magic-link sign-ups and the dashboard's "Invite user" are refused. It relies on "Confirm email" staying on; "Allow new users to sign up" should still be off (docs/DEPLOY.md).
 - `push_subscriptions`: `user_id` defaults to `auth.uid()`; inserting an existing endpoint replaces the old row (trigger) — use a **plain insert**. Endpoints must be real push services (CHECK constraint; SQLSTATE `23514` ⇒ show "alerts aren't supported in this browser").
 - Extra functions: `public.signup_rate_check(p_ip_hash, p_max, p_window_minutes)` (service role only) for the sign-up server action; `public.claim_push_batch(p_limit)` (service role only).
 - New-shift fan-out skips anyone with an open post or picked-up shift that day.
@@ -499,12 +529,24 @@ Database
 Libraries & API
 - `src/lib/api/*` functions take the Supabase client first, **return data directly and throw `AppError`** (`src/lib/errors.ts`); paged reads return `{items, nextCursor}`. Notifying RPC wrappers automatically fire-and-forget `POST /api/push/flush` (browser only; debounced).
 - `diffDays(a, b)` = b − a. `computeMonthDays({userId, tour, year, month, myShifts, boardCounts, today?})` returns 6×7 `weeks` with a `tone` per day (precedence swap > covering > openPost > working > givenAway > available > off).
-- The proxy (`src/proxy.ts` + `src/lib/supabase/session.ts`) handles legacy redirects (307), sends signed-out `/api/*` requests a 401 JSON, honours a safe `?next=`, and never signs anyone out because of a Supabase outage (layout gates show an error state instead).
+- The proxy (`src/proxy.ts` + `src/lib/supabase/session.ts`) refreshes the session, sends signed-out `/api/*` requests a 401 JSON, honours a safe `?next=`, and never signs anyone out because of a Supabase outage (layout gates show an error state instead). Legacy redirects are in `next.config.ts` only (§7.1). `resolveUserId`/`sessionCheckError()` treat an Auth 5xx or no connection as `NETWORK`, never as `NOT_SIGNED_IN`.
+- Shared helpers — use these instead of local copies: `src/lib/validation.ts` (phone, password, name and employee-ID rules as plain validators and zod schemas; the phone rule matches `private.valid_phone` plus 7+ digits), `src/lib/format.ts` (`relativeTime`, `plural`, `dialablePhone`/`telHref`/`smsHref`, `tourLabel`, `acceptLimitLabel`), `src/components/forms/{PasswordInput,FormAlert}.tsx`, and `cn()` (tailwind-merge: later classes win).
 - Server-only modules (`src/lib/supabase/admin.ts`, `getServerEnv()`) throw if imported in the browser (runtime check; the `server-only` package is not installed).
 
 UI shell
 - `(app)` layout renders `<ProfileProvider profile={profile}><AppShell>{children}</AppShell></ProfileProvider>`; every page renders `<AppHeader title=… />` (the page's only `h1`). Use `useProfile()` for the current member.
 - Text colours: `--text-secondary #A3A3B8`, `--text-dim #8A8AA3`; use `--sffd-red-text #FF4D4D` for red **text** (keep `#D32F2F` for fills). Stagger animation classes are `stagger-1..4`.
-- Sign-out sequence: `await unsubscribeFromPush(sb)`, `await clearAppCaches()` (from `@/lib/push/client`), clear offline snapshots, then `sb.auth.signOut({ scope: 'local' })`.
+- Sign-out sequence: every sign-out button calls `signOutOnThisDevice()` (`src/lib/auth/sign-out.ts`): best-effort and time-boxed push unsubscribe, clear offline snapshots and this device's prompt flags, close shown notifications, `clearAppCaches()` (keeps the service worker's `shiftswap-static-*` cache so `/offline` keeps working), `signOut({ scope: 'local' })` (a failure still counts as signed out; the session cookies are removed by hand), then always a full page load of `/login`. The login page also clears offline snapshots (SEC-7).
+- The `(app)` gates also run in the browser: `ProfileProvider` re-reads the profile on focus, visibility, reconnect and navigation (at most once a minute) and reloads the page when the member was suspended or removed, changed role or must change their password. `PWARegister` checks for a new deploy on resume (`X-App-Version` header on `/sw.js`, `src/lib/pwa/update-check.ts`).
 - After marking alerts read call `announceNotificationsChanged()` (from `@/hooks/useUnreadCount`).
 - Push payload sent by the server: JSON `{ title, body, url, tag? }` (`url` must be a same-origin path; chat tag `message:<shiftId>:<senderId>`).
+
+### 9.1 Review-fix notes (migration 0011 and the shared helpers, 2026-09-23)
+
+- **Sign-up lockdown:** a deferred (commit-time) constraint trigger on `auth.users` refuses any account still unconfirmed at commit, so only the app's server-side `admin.createUser(email_confirm: true)` can create members (Supabase inserts then confirms inside one transaction). Keep "Confirm email" **on** in Supabase Auth settings.
+- **Account removal:** `admin_remove_member` scrubs contact details, suspends, sets `profiles.removed_at`; the admin server action also bans the auth user and renames its email to `removed+<id>@shiftswap.invalid` so the address can re-register.
+- `member_cards(uuid[])` batches requester cards; `my_ledger.upcoming` counts a SwapMatch pair once; SwapMatch new-shift alerts go only to members who can give an offered return date (`private.can_give_return_date`, mirrored client-side).
+- **Shared client helpers:** sign-out is `signOutOnThisDevice()` in `src/lib/auth/sign-out.ts` (always ends with a full reload to /login; static/offline caches are kept); validation rules in `src/lib/validation.ts`; formatting in `src/lib/format.ts`; `PasswordInput`/`FormAlert` in `src/components/forms/`; `AlertsNudge` for enabling push inside the installed iPhone app.
+- **Board URL params:** `?date=YYYY-MM-DD`, `?scope=all` (all locations, my rank, "Only shifts I can take" on) and `?shift=<id>`. The calendar's "See N available" uses the same query as the board.
+- **Redirects:** legacy routes (incl. /forgot-password, /reset-password, /verify-email, /auth/callback) redirect in `next.config.ts` only.
+- A cancel request on a trade that has started can still be withdrawn or dismissed (agreeing is disabled; only an admin can void).

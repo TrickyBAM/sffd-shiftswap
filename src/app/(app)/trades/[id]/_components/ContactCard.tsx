@@ -3,9 +3,9 @@
 import { Mail, MessageCircle, Phone } from 'lucide-react'
 import { Avatar, Card, CardHeader, ErrorState, Skeleton, buttonClasses } from '@/components/ui'
 import type { AppError } from '@/lib/errors'
+import { smsHref, telHref } from '@/lib/format'
 import { stationLabel } from '@/lib/sffd/stations'
 import type { TradeContact } from '@/lib/types/database'
-import { dialable } from '@/app/(app)/board/_lib/format'
 
 export interface ContactCardProps {
   contacts: readonly TradeContact[]
@@ -20,7 +20,9 @@ export interface ContactCardProps {
 /** The trade partner's phone and email (get_trade_contact) with tap-to-call, text and email. */
 export function ContactCard({ contacts, otherId, otherName, loading, error, onRetry }: ContactCardProps) {
   const contact = contacts.find((c) => c.user_id === otherId) ?? null
-  const phone = dialable(contact?.phone)
+  const tel = telHref(contact?.phone)
+  const sms = smsHref(contact?.phone)
+  const callable = Boolean(tel && sms)
 
   return (
     <Card as="section" aria-labelledby="trade-contact-title">
@@ -74,10 +76,10 @@ export function ContactCard({ contacts, otherId, otherName, loading, error, onRe
           </dl>
 
           <div className="mt-3 grid grid-cols-3 gap-2">
-            {phone ? (
+            {tel && sms ? (
               <>
                 <a
-                  href={`tel:${phone}`}
+                  href={tel}
                   className={buttonClasses({ variant: 'secondary', size: 'sm' })}
                   aria-label={`Call ${contact.full_name}`}
                 >
@@ -85,7 +87,7 @@ export function ContactCard({ contacts, otherId, otherName, loading, error, onRe
                   Call
                 </a>
                 <a
-                  href={`sms:${phone}`}
+                  href={sms}
                   className={buttonClasses({ variant: 'secondary', size: 'sm' })}
                   aria-label={`Text ${contact.full_name}`}
                 >
@@ -97,7 +99,7 @@ export function ContactCard({ contacts, otherId, otherName, loading, error, onRe
             {contact.email ? (
               <a
                 href={`mailto:${encodeURIComponent(contact.email).replace(/%40/g, '@')}`}
-                className={buttonClasses({ variant: 'secondary', size: 'sm', className: phone ? '' : 'col-span-3' })}
+                className={buttonClasses({ variant: 'secondary', size: 'sm', className: callable ? '' : 'col-span-3' })}
                 aria-label={`Email ${contact.full_name}`}
               >
                 <Mail size={16} aria-hidden="true" />
@@ -105,7 +107,7 @@ export function ContactCard({ contacts, otherId, otherName, loading, error, onRe
               </a>
             ) : null}
           </div>
-          {!phone ? <p className="mt-2 text-sm text-fg-muted">No phone number on file.</p> : null}
+          {!callable ? <p className="mt-2 text-sm text-fg-muted">No phone number on file.</p> : null}
         </>
       )}
     </Card>

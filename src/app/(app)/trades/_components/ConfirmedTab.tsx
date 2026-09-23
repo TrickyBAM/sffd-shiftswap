@@ -1,17 +1,28 @@
+'use client'
+
+import { useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeftRight, CalendarCheck, ChevronRight } from 'lucide-react'
-import { Badge, buttonClasses, EmptyState } from '@/components/ui'
+import { Badge, Button, buttonClasses, EmptyState, useToast } from '@/components/ui'
+import { cn } from '@/components/ui/cn'
+import { withdrawTradeCancel } from '@/lib/api'
+import { errorMessage } from '@/lib/errors'
 import { formatDate } from '@/lib/sffd/dates'
 import { stationLabel } from '@/lib/sffd/stations'
+import { createClient } from '@/lib/supabase/client'
 import { DateTile, TradeLinkCard, TradeSection } from './TradeLinkCard'
-import { cancelStatus, perspectiveLabel, shiftLine, type TradeGroup } from './trades-model'
+import { cancelInfo, perspectiveLabel, shiftLine, type CancelInfo, type TradeGroup } from './trades-model'
 
 export interface ConfirmedTabProps {
   me: string
   trades: TradeGroup[]
+  /** Called after a change made here (a cancel request withdrawn): reload. */
+  onChanged: () => void
+  /** Actions are disabled while showing the offline snapshot. */
+  offline: boolean
 }
 
-export function ConfirmedTab({ me, trades }: ConfirmedTabProps) {
+export function ConfirmedTab({ me, trades, onChanged, offline }: ConfirmedTabProps) {
   if (trades.length === 0) {
     return (
       <EmptyState
@@ -34,19 +45,100 @@ export function ConfirmedTab({ me, trades }: ConfirmedTabProps) {
       description="Remember: every trade still needs approval in TeleStaff."
     >
       {trades.map((trade) => (
-        <li key={trade.id}>{trade.isSwap ? <SwapCard trade={trade} me={me} /> : <SingleCard trade={trade} me={me} />}</li>
+        <li key={trade.id}>
+          <TradeCard trade={trade} me={me} onChanged={onChanged} offline={offline} />
+        </li>
       ))}
     </TradeSection>
   )
 }
 
-function CancelBadge({ trade, me }: { trade: TradeGroup; me: string }) {
-  const text = cancelStatus(trade.cancelRequestedBy, me, trade.partnerName)
-  if (!text) return null
-  return <Badge tone="yellow">{text}</Badge>
+function TradeCard({
+  trade,
+  me,
+  onChanged,
+  offline,
+}: {
+  trade: TradeGroup
+  me: string
+  onChanged: () => void
+  offline: boolean
+}) {
+  const info = cancelInfo(trade, me)
+  const withdrawable = Boolean(info?.canWithdraw)
+  const card = trade.isSwap ? (
+    <SwapCard trade={trade} me={me} info={info} framed={!withdrawable} />
+  ) : (
+    <SingleCard trade={trade} me={me} info={info} framed={!withdrawable} />
+  )
+  if (!withdrawable) return card
+  // A cancel request I made that can't be answered any more: let me take it back (TF-5).
+  return (
+    <div className={cn('rounded-2xl border bg-card', trade.isSwap ? 'border-accent-purple/25' : 'border-line')}>
+      {card}
+      <div className="flex justify-end border-t border-line px-3 py-2">
+        <WithdrawCancelButton tradeId={trade.id} onChanged={onChanged} offline={offline} />
+      </div>
+    </div>
+  )
 }
 
-function SingleCard({ trade, me }: { trade: TradeGroup; me: string }) {
+function WithdrawCancelButton({
+  tradeId,
+  onChanged,
+  offline,
+}: {
+  tradeId: string
+  onChanged: () => void
+  offline: boolean
+}) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+
+  async function withdraw() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await withdrawTradeCancel(createClient(), tradeId)
+    } catch (error) {
+      toast.error("Couldn't withdraw your cancel request", errorMessage(error))
+      setBusy(false)
+      return
+    }
+    toast.success('Cancel request withdrawn', 'The trade stays confirmed.')
+    setBusy(false)
+    onChanged()
+  }
+
+  return (
+    <Button variant="ghost" size="sm" onClick={withdraw} loading={busy} disabled={offline}>
+      Withdraw cancel request
+    </Button>
+  )
+}
+
+/** Cancel-request badge (inline with the other badges) and its sentence (full width). */
+function CancelNote({ info }: { info: CancelInfo | null }) {
+  if (!info) return null
+  return (
+    <>
+      <Badge tone={info.tone}>{info.badge}</Badge>
+      <span className="w-full text-sm text-fg-muted">{info.text}</span>
+    </>
+  )
+}
+
+function SingleCard({
+  trade,
+  me,
+  info,
+  framed,
+}: {
+  trade: TradeGroup
+  me: string
+  info: CancelInfo | null
+  framed: boolean
+}) {
   const leg = trade.legs[0]
   const covering = leg.coverer_id === me
   return (
@@ -56,19 +148,30 @@ function SingleCard({ trade, me }: { trade: TradeGroup; me: string }) {
       dateTone={covering ? 'neutral' : 'red'}
       title={perspectiveLabel(leg, me)}
       subtitle={shiftLine(leg)}
+      framed={framed}
     >
       <Badge tone="green">Confirmed</Badge>
-      <CancelBadge trade={trade} me={me} />
+      <CancelNote info={info} />
     </TradeLinkCard>
   )
 }
 
 /** Both SwapMatch legs in one card: one row per date, worded from my side. */
-function SwapCard({ trade, me }: { trade: TradeGroup; me: string }) {
+function SwapCard({
+  trade,
+  me,
+  info,
+  framed,
+}: {
+  trade: TradeGroup
+  me: string
+  info: CancelInfo | null
+  framed: boolean
+}) {
   return (
     <Link
       href={`/trades/${trade.id}`}
-      className="card-hover block rounded-2xl border border-accent-purple/25 bg-card p-4"
+      className={cn('block rounded-2xl p-4', framed && 'card-hover border border-accent-purple/25 bg-card')}
     >
       <div className="flex items-center gap-2">
         <ArrowLeftRight size={18} aria-hidden="true" className="shrink-0 text-accent-purple" />
@@ -91,10 +194,10 @@ function SwapCard({ trade, me }: { trade: TradeGroup; me: string }) {
       {trade.legs.length === 1 ? (
         <p className="mt-2 text-sm text-fg-dim">The other date in this swap has already started.</p>
       ) : null}
-      <div className="mt-3 flex flex-wrap gap-1.5">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
         <Badge tone="purple">SwapMatch</Badge>
         <Badge tone="green">Confirmed</Badge>
-        <CancelBadge trade={trade} me={me} />
+        <CancelNote info={info} />
       </div>
     </Link>
   )

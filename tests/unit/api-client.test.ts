@@ -3,17 +3,22 @@
 // failures come back (typed data or AppError). No network.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { AuthApiError, AuthSessionMissingError, createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { AppError, GENERIC_MESSAGE, NETWORK_MESSAGE } from '@/lib/errors'
 import {
+  adminRemoveMember,
   callRpc,
   confirmRequest,
-  countOpenShiftsByDate,
+  deletePushSubscription,
+  getMemberCards,
   getMyProfile,
+  getMySchedule,
   getShift,
   getShiftEligibility,
   getTrade,
+  hasPushSubscription,
   importRoster,
+  listAdminShifts,
   listBoardShifts,
   listIncomingRequests,
   listMembers,
@@ -22,13 +27,20 @@ import {
   listMyTrades,
   listNotifications,
   listPendingApprovals,
+  listUndoneTrades,
   markNotificationsRead,
   postShift,
+  PUSH_UNSUPPORTED_MESSAGE,
   requestShift,
+  resolveUserId,
   savePushSubscription,
+  undoneTradesFrom,
   unreadCount,
+  unreadMessagesBySender,
   updateMyProfile,
+  type RequestWithShift,
 } from '@/lib/api'
+import { sessionCheckError } from '@/lib/api/core'
 import type { Shift } from '@/lib/types/database'
 
 const ME = '11111111-1111-4111-8111-111111111111'
@@ -416,36 +428,6 @@ describe('listBoardShifts', () => {
   })
 })
 
-describe('countOpenShiftsByDate', () => {
-  it('selects dates of shifts the viewer could take and tallies them', async () => {
-    const { sb, calls } = fakeSupabase(() =>
-      json([{ date: '2026-10-01' }, { date: '2026-10-01' }, { date: '2026-10-04' }]),
-    )
-    const counts = await countOpenShiftsByDate(sb, {
-      from: '2026-10-01',
-      to: '2026-10-31',
-      viewer: { id: ME, rank: 'Firefighter', station: 19, battalion: 9, division: 3 },
-    })
-    expect(counts).toEqual({ '2026-10-01': 2, '2026-10-04': 1 })
-    const q = calls[0]
-    expect(params(q, 'select')).toEqual(['date'])
-    expect(params(q, 'rank')).toEqual(['eq.Firefighter'])
-    expect(params(q, 'date')).toEqual(['gte.2026-10-01', 'lte.2026-10-31'])
-  })
-
-  it('rejects ranges over 400 days without a request', async () => {
-    const { sb, calls } = fakeSupabase(() => json([]))
-    await expect(
-      countOpenShiftsByDate(sb, {
-        from: '2026-01-01',
-        to: '2027-12-31',
-        viewer: { id: ME, rank: 'Firefighter', station: 19, battalion: 9, division: 3 },
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_INPUT' })
-    expect(calls).toHaveLength(0)
-  })
-})
-
 describe('requests', () => {
   it('listMyRequests embeds the shift and filters by requester', async () => {
     const { sb, calls } = fakeSupabase(() =>
@@ -680,6 +662,374 @@ describe('push subscriptions', () => {
     )
     await expect(
       savePushSubscription(sb, { endpoint: 'https://evil.example/x', p256dh: 'k', auth: 'a' }),
-    ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: expect.stringMatching(/alert service isn't supported/) })
+    ).rejects.toMatchObject({ code: 'INVALID_INPUT', message: PUSH_UNSUPPORTED_MESSAGE })
+    expect(PUSH_UNSUPPORTED_MESSAGE).toMatch(/^Alerts aren't supported in this browser/)
+  })
+
+  it('other rejected inserts keep their own message', async () => {
+    const { sb } = fakeSupabase(() => json({ code: '22001', message: 'value too long', details: null, hint: null }, 400))
+    const error = await savePushSubscription(sb, { endpoint: 'https://fcm.googleapis.com/x', p256dh: 'k', auth: 'a' }).catch(
+      (e: unknown) => e,
+    )
+    expect(error).toMatchObject({ code: 'INVALID_INPUT' })
+    expect((error as AppError).message).not.toBe(PUSH_UNSUPPORTED_MESSAGE)
+  })
+
+  it('checks and deletes my row for an endpoint', async () => {
+    const { sb, calls } = fakeSupabase((call) => (call.method === 'DELETE' ? new Response(null, { status: 204 }) : json([{ id: 'x' }])))
+    await expect(hasPushSubscription(sb, 'https://fcm.googleapis.com/x')).resolves.toBe(true)
+    expect(params(calls[0], 'endpoint')).toEqual(['eq.https://fcm.googleapis.com/x'])
+    await deletePushSubscription(sb, 'https://fcm.googleapis.com/x')
+    expect(calls[1].method).toBe('DELETE')
+    expect(params(calls[1], 'endpoint')).toEqual(['eq.https://fcm.googleapis.com/x'])
+    await expect(hasPushSubscription(sb, '')).resolves.toBe(false)
+    expect(calls).toHaveLength(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Session checks: an Auth outage is never "signed out" (NEXT-07)
+// ---------------------------------------------------------------------------
+
+describe('resolveUserId / sessionCheckError', () => {
+  function withClaims(result: unknown): SupabaseClient {
+    return { auth: { getClaims: async () => result } } as unknown as SupabaseClient
+  }
+
+  it('an Auth 5xx is a NETWORK error, not NOT_SIGNED_IN', async () => {
+    const sb = withClaims({ data: null, error: new AuthApiError('Internal Server Error', 500, 'unexpected_failure') })
+    await expect(resolveUserId(sb)).rejects.toMatchObject({ code: 'NETWORK', message: NETWORK_MESSAGE })
+    expect(sessionCheckError(new AuthApiError('timeout', 504, undefined)).code).toBe('NETWORK')
+    expect(sessionCheckError(new AuthApiError('request timeout', 500, 'request_timeout')).code).toBe('NETWORK')
+  })
+
+  it('a rejected or missing session is NOT_SIGNED_IN', async () => {
+    await expect(resolveUserId(withClaims({ data: null, error: new AuthSessionMissingError() }))).rejects.toMatchObject({
+      code: 'NOT_SIGNED_IN',
+    })
+    await expect(
+      resolveUserId(withClaims({ data: null, error: new AuthApiError('invalid JWT', 403, 'bad_jwt') })),
+    ).rejects.toMatchObject({ code: 'NOT_SIGNED_IN' })
+    await expect(resolveUserId(withClaims({ data: null, error: new AuthApiError('gone', 404, undefined) }))).rejects.toMatchObject({
+      code: 'NOT_SIGNED_IN',
+    })
+    await expect(resolveUserId(withClaims({ data: null, error: null }))).rejects.toMatchObject({ code: 'NOT_SIGNED_IN' })
+  })
+
+  it('rate limits and unexpected errors are not "signed out" either', async () => {
+    expect(sessionCheckError(new AuthApiError('slow down', 429, 'over_request_rate_limit')).code).toBe('UNKNOWN')
+    expect(sessionCheckError(new TypeError('x is not a function')).code).toBe('UNKNOWN')
+    await expect(
+      resolveUserId({ auth: { getClaims: async () => Promise.reject(new TypeError('fetch failed')) } } as unknown as SupabaseClient),
+    ).rejects.toMatchObject({ code: 'NETWORK' })
+  })
+
+  it('returns the verified user id', async () => {
+    await expect(resolveUserId(withClaims({ data: { claims: { sub: ME } }, error: null }))).resolves.toBe(ME)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Trade detail for an old SwapMatch return leg (TF-6)
+// ---------------------------------------------------------------------------
+
+describe('getTrade with an old return leg', () => {
+  const NEW_LEG = '66666666-6666-4666-8666-666666666666'
+  const THIRD = '77777777-7777-4777-8777-777777777777'
+
+  it('describes the leg in the URL even after the post was traded again', async () => {
+    // The original was re-confirmed with someone else, who has a new return leg.
+    const original = shiftRow({ id: SHIFT, status: 'covered', coverer_id: THIRD, return_leg_id: NEW_LEG })
+    const oldLeg = shiftRow({ id: LEG, poster_id: ME, status: 'cancelled', return_leg_of: SHIFT, date: '2026-10-20' })
+    const newLeg = shiftRow({ id: NEW_LEG, status: 'covered', return_leg_of: SHIFT, date: '2026-10-25' })
+    const { sb } = fakeSupabase((call) => {
+      if (call.path === '/rest/v1/shift_requests') return json([])
+      if (params(call, 'id')[0] === `eq.${LEG}`) return json([oldLeg])
+      return json([original, oldLeg, newLeg])
+    })
+    const trade = await getTrade(sb, LEG)
+    expect(trade!.returnLeg?.id).toBe(LEG)
+    expect(trade!.returnLegIsCurrent).toBe(false)
+    expect(trade!.requestedId).toBe(LEG)
+  })
+
+  it('the original shows its current leg, or none after an undo', async () => {
+    const reopened = shiftRow({ id: SHIFT, status: 'open', return_leg_id: null })
+    const oldLeg = shiftRow({ id: LEG, status: 'cancelled', return_leg_of: SHIFT })
+    const { sb } = fakeSupabase((call) => {
+      if (call.path === '/rest/v1/shift_requests') return json([])
+      if (params(call, 'id')[0] === `eq.${SHIFT}`) return json([reopened])
+      return json([reopened, oldLeg])
+    })
+    const trade = await getTrade(sb, SHIFT)
+    expect(trade!.returnLeg).toBeNull()
+    expect(trade!.returnLegIsCurrent).toBe(false)
+  })
+
+  it('a current leg is marked current', async () => {
+    const original = shiftRow({ id: SHIFT, status: 'covered', coverer_id: ME, return_leg_id: LEG })
+    const leg = shiftRow({ id: LEG, status: 'covered', return_leg_of: SHIFT })
+    const { sb } = fakeSupabase((call) => {
+      if (call.path === '/rest/v1/shift_requests') return json([])
+      if (params(call, 'id')[0] === `eq.${SHIFT}`) return json([original])
+      return json([original, leg])
+    })
+    const trade = await getTrade(sb, SHIFT)
+    expect(trade!.returnLeg?.id).toBe(LEG)
+    expect(trade!.returnLegIsCurrent).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Undone trades in History, for both members (TF-4)
+// ---------------------------------------------------------------------------
+
+describe('undone trades', () => {
+  const T = '2026-09-22T18:00:00.123456+00:00'
+  const LATER = '2026-09-23T18:00:00+00:00'
+  const R = (i: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(i).padStart(12, '0')}`
+
+  function req(overrides: Partial<RequestWithShift> & { shift: Shift }): RequestWithShift {
+    return {
+      id: R(1),
+      shift_id: overrides.shift.id,
+      requester_id: ME,
+      requester_name: 'Me Myself',
+      requester_rank: 'Firefighter',
+      requester_station: 19,
+      return_date: null,
+      message: null,
+      status: 'cancelled',
+      decided_at: T,
+      created_at: '2026-09-20T10:00:00+00:00',
+      ...overrides,
+    }
+  }
+
+  it('an agreed cancel that reopened the post shows for the coverer and the poster', () => {
+    const reopened = shiftRow({ status: 'open', updated_at: T })
+    const r = req({ shift: reopened })
+    expect(undoneTradesFrom([r], [], ME)).toEqual([
+      expect.objectContaining({ role: 'coverer', partnerId: OTHER, partnerName: 'Pat Poster', undoneAt: T, how: null, returnLeg: null }),
+    ])
+    expect(undoneTradesFrom([r], [], OTHER)).toEqual([
+      expect.objectContaining({ role: 'poster', partnerId: ME, partnerName: 'Me Myself' }),
+    ])
+    // The result doesn't carry the joined shift twice.
+    expect(undoneTradesFrom([r], [], ME)[0].request).not.toHaveProperty('shift')
+  })
+
+  it('a SwapMatch undo is matched to its cancelled return leg (agreed or voided)', () => {
+    const reopened = shiftRow({ status: 'open', updated_at: T, return_dates: ['2026-10-20'] })
+    const leg = shiftRow({
+      id: LEG,
+      poster_id: ME,
+      status: 'cancelled',
+      return_leg_of: SHIFT,
+      cancelled_at: T,
+      cancel_note: 'Cancelled by agreement',
+    })
+    const r = req({ shift: reopened, return_date: '2026-10-20' })
+    expect(undoneTradesFrom([r], [leg], OTHER)).toEqual([
+      expect.objectContaining({ role: 'poster', how: 'agreed', note: null, returnLeg: leg }),
+    ])
+    const voided = { ...leg, cancel_note: 'Entered wrong in TeleStaff' }
+    expect(undoneTradesFrom([r], [voided], ME)).toEqual([
+      expect.objectContaining({ role: 'coverer', how: 'voided', note: 'Entered wrong in TeleStaff' }),
+    ])
+    // Without its leg a SwapMatch request was never confirmed.
+    expect(undoneTradesFrom([r], [], ME)).toEqual([])
+  })
+
+  it('an admin void after the start keeps the coverer name on the cancelled post', () => {
+    const voided = shiftRow({ status: 'cancelled', cancelled_at: T, coverer_name: 'Me Myself', cancel_note: 'Voided by an admin' })
+    expect(undoneTradesFrom([req({ shift: voided })], [], ME)).toEqual([
+      expect.objectContaining({ how: 'voided', note: null, role: 'coverer' }),
+    ])
+  })
+
+  it('requests closed while still pending are not trades', () => {
+    // The poster cancelled the post while the request was waiting.
+    const cancelledPost = shiftRow({ status: 'cancelled', cancelled_at: T, coverer_name: null })
+    expect(undoneTradesFrom([req({ shift: cancelledPost })], [], ME)).toEqual([])
+    // The requester was suspended: their request closed, the post wasn't touched.
+    const untouched = shiftRow({ status: 'open', updated_at: '2026-09-20T17:05:03+00:00' })
+    expect(undoneTradesFrom([req({ shift: untouched })], [], OTHER)).toEqual([])
+    // Other statuses are ignored.
+    expect(undoneTradesFrom([req({ shift: untouched, status: 'declined' })], [], ME)).toEqual([])
+  })
+
+  it('a post reopened, traded again or cancelled later still shows the old undone trade', () => {
+    const retraded = shiftRow({ status: 'covered', coverer_id: '77777777-7777-4777-8777-777777777777', updated_at: LATER })
+    expect(undoneTradesFrom([req({ shift: retraded })], [], ME)).toHaveLength(1)
+    const cancelledLater = shiftRow({ status: 'cancelled', cancelled_at: LATER, updated_at: LATER })
+    expect(undoneTradesFrom([req({ shift: cancelledLater })], [], ME)).toHaveLength(1)
+    // Reopened, traded again with me and undone again: both undos show, newest first.
+    const reopenedAgain = shiftRow({ status: 'open', updated_at: LATER })
+    const first = req({ id: R(1), shift: reopenedAgain })
+    const second = req({ id: R(2), shift: reopenedAgain, decided_at: LATER })
+    expect(undoneTradesFrom([first, second], [], ME).map((u) => u.request.id)).toEqual([R(2), R(1)])
+  })
+
+  it('listUndoneTrades loads both sides and the cancelled legs', async () => {
+    const reopened = shiftRow({ status: 'open', updated_at: T })
+    const { sb, calls } = fakeSupabase((call) => {
+      if (call.path === '/rest/v1/shift_requests') {
+        return params(call, 'requester_id').length ? json([req({ shift: reopened })]) : json([])
+      }
+      return json([])
+    })
+    const rows = await listUndoneTrades(sb, { userId: ME })
+    expect(rows).toHaveLength(1)
+    const posterSide = calls.find((c) => params(c, 'shift.poster_id').length)!
+    const requesterSide = calls.find((c) => params(c, 'requester_id').length)!
+    const legs = calls.find((c) => c.path === '/rest/v1/shifts')!
+    expect(params(posterSide, 'shift.poster_id')).toEqual([`eq.${ME}`])
+    expect(params(posterSide, 'status')).toEqual(['eq.cancelled'])
+    expect(params(posterSide, 'decided_at')).toEqual(['not.is.null'])
+    expect(params(requesterSide, 'requester_id')).toEqual([`eq.${ME}`])
+    expect(params(legs, 'return_leg_of')).toEqual([`in.(${SHIFT})`])
+    expect(params(legs, 'status')).toEqual(['eq.cancelled'])
+  })
+
+  it('makes no leg query when nothing was cancelled', async () => {
+    const { sb, calls } = fakeSupabase(() => json([]))
+    await expect(listUndoneTrades(sb, { userId: ME })).resolves.toEqual([])
+    expect(calls).toHaveLength(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Admin filters (CC-5), member cards, removal
+// ---------------------------------------------------------------------------
+
+describe('admin lists with filters', () => {
+  it('listAdminShifts: scope, dates, place, member name and paging', async () => {
+    const leg = shiftRow({ id: LEG, return_leg_of: SHIFT, status: 'covered' })
+    const { sb, calls } = fakeSupabase((call) => {
+      if (params(call, 'id').length) return json([leg])
+      return json([shiftRow({ status: 'covered', return_leg_id: LEG })], 200, { 'content-range': '25-25/40' })
+    })
+    const page = await listAdminShifts(sb, {
+      scope: 'upcoming',
+      from: '2026-10-01',
+      to: '2026-10-31',
+      battalion: 9,
+      station: 19,
+      member: 'Pat (P)',
+      limit: 25,
+      offset: 25,
+      withReturnLegs: true,
+      now: new Date('2026-09-23T19:00:00.000Z'),
+    })
+    expect(page.total).toBe(40)
+    expect(page.returnLegs.get(LEG)).toEqual(leg)
+    const q = calls[0]
+    expect(params(q, 'status')).toEqual(['eq.covered'])
+    expect(params(q, 'starts_at')).toEqual(['gt.2026-09-23T19:00:00.000Z'])
+    expect(params(q, 'return_leg_of')).toEqual(['is.null'])
+    expect(params(q, 'date')).toEqual(['gte.2026-10-01', 'lte.2026-10-31'])
+    expect(params(q, 'battalion')).toEqual(['eq.9'])
+    expect(params(q, 'station')).toEqual(['eq.19'])
+    expect(params(q, 'or')).toEqual(['(poster_name.ilike."%Pat P%",coverer_name.ilike."%Pat P%")'])
+    expect(params(q, 'offset')).toEqual(['25'])
+    expect(params(q, 'limit')).toEqual(['25'])
+    expect(params(calls[1], 'id')).toEqual([`in.(${LEG})`])
+  })
+
+  it('listAdminShifts: "all" has no status filter; blank dates are ignored; bad dates are refused', async () => {
+    const { sb, calls } = fakeSupabase(() => json([], 200, { 'content-range': '*/0' }))
+    const page = await listAdminShifts(sb, { scope: 'all', from: '', to: null })
+    expect(page).toEqual({ items: [], total: 0, returnLegs: new Map() })
+    expect(params(calls[0], 'status')).toEqual([])
+    expect(params(calls[0], 'date')).toEqual([])
+    await expect(listAdminShifts(sb, { from: '10/01/2026' })).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('listMembers: station, recently joined, approved order and removed filter', async () => {
+    const { sb, calls } = fakeSupabase(() => json([], 200, { 'content-range': '*/0' }))
+    await listMembers(sb, {
+      station: 19,
+      joinedWithinDays: 7,
+      order: 'approved',
+      removed: 'exclude',
+      now: new Date('2026-09-23T19:00:00.000Z'),
+    })
+    const q = calls[0]
+    expect(params(q, 'station')).toEqual(['eq.19'])
+    expect(params(q, 'approved_at')).toEqual(['gte.2026-09-16T19:00:00.000Z'])
+    expect(params(q, 'removed_at')).toEqual(['is.null'])
+    expect(params(q, 'order')).toEqual(['approved_at.desc.nullslast,full_name.asc,id.asc'])
+
+    await listMembers(sb, { removed: 'only' })
+    expect(params(calls[1], 'removed_at')).toEqual(['not.is.null'])
+    // Default: no removed filter (works before migration 0011).
+    await listMembers(sb)
+    expect(params(calls[2], 'removed_at')).toEqual([])
+    await expect(listMembers(sb, { joinedWithinDays: 0 })).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+
+  it('getMemberCards: one call for many ids, none for no valid ids', async () => {
+    const { sb, calls } = fakeSupabase(() => json([{ user_id: ME, full_name: 'Me' }, null]))
+    const cards = await getMemberCards(sb, [ME, ME, 'nope', OTHER])
+    expect(cards).toEqual([{ user_id: ME, full_name: 'Me' }])
+    expect(calls[0].path).toBe('/rest/v1/rpc/member_cards')
+    expect(calls[0].body).toEqual({ p_user_ids: [ME, OTHER] })
+    await expect(getMemberCards(sb, ['nope'])).resolves.toEqual([])
+    expect(calls).toHaveLength(1)
+  })
+
+  it('getMemberCards asks 50 at a time (member_cards refuses more)', async () => {
+    const ids = Array.from({ length: 60 }, (_, i) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(i).padStart(12, '0')}`)
+    const { sb, calls } = fakeSupabase((call) =>
+      json((call.body as { p_user_ids: string[] }).p_user_ids.map((user_id) => ({ user_id }))),
+    )
+    const cards = await getMemberCards(sb, ids)
+    expect(cards.map((c) => c.user_id)).toEqual(ids)
+    expect(calls.map((c) => (c.body as { p_user_ids: string[] }).p_user_ids.length)).toEqual([50, 10])
+  })
+
+  it('adminRemoveMember sends the id and the trimmed reason and returns what came off the board', async () => {
+    const { sb, calls } = fakeSupabase(() => json({ posts_cancelled: 2, requests_closed: 1, upcoming_trades: 3 }))
+    await expect(adminRemoveMember(sb, ME, '  Left the department ')).resolves.toEqual({
+      posts_cancelled: 2,
+      requests_closed: 1,
+      upcoming_trades: 3,
+    })
+    expect(calls[0].path).toBe('/rest/v1/rpc/admin_remove_member')
+    expect(calls[0].body).toEqual({ p_user_id: ME, p_reason: 'Left the department' })
+    await expect(adminRemoveMember(sb, 'x')).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+  })
+})
+
+describe('small reads', () => {
+  it('unreadMessagesBySender counts per sender', async () => {
+    const { sb, calls } = fakeSupabase(() => json([{ sender_id: OTHER }, { sender_id: OTHER }, { sender_id: LEG }]))
+    await expect(unreadMessagesBySender(sb, SHIFT, { userId: ME })).resolves.toEqual({ [OTHER]: 2, [LEG]: 1 })
+    expect(params(calls[0], 'recipient_id')).toEqual([`eq.${ME}`])
+    expect(params(calls[0], 'read_at')).toEqual(['is.null'])
+  })
+
+  it('unreadCount can filter by my id', async () => {
+    const { sb, calls } = fakeSupabase(() => new Response(null, { status: 200, headers: { 'content-range': '*/3' } }))
+    await expect(unreadCount(sb, { userId: ME })).resolves.toBe(3)
+    expect(params(calls[0], 'user_id')).toEqual([`eq.${ME}`])
+  })
+
+  it('getMySchedule always has pm_given_away', async () => {
+    const { sb } = fakeSupabase(() =>
+      json([
+        { date: '2026-10-03', base: true, given_away: true, pm_given_away: true, working: true },
+        { date: '2026-10-04', base: false, given_away: false, working: false },
+      ]),
+    )
+    const rows = await getMySchedule(sb, '2026-10-03', '2026-10-04')
+    expect(rows.map((r) => r.pm_given_away)).toEqual([true, false])
+  })
+
+  it('getMySchedule rejects ranges over 400 days without a request', async () => {
+    const { sb, calls } = fakeSupabase(() => json([]))
+    await expect(getMySchedule(sb, '2026-01-01', '2027-12-31')).rejects.toMatchObject({ code: 'INVALID_INPUT' })
+    expect(calls).toHaveLength(0)
   })
 })

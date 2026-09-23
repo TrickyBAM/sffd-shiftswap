@@ -67,6 +67,8 @@ interface Day {
   picked_up: boolean
   working: boolean
   open_post_id: string | null
+  /** Only the PM was given away: still on duty 0800–1600. */
+  pm_given_away: boolean
 }
 
 async function scheduleOn(m: Member, date: string): Promise<Day> {
@@ -74,10 +76,13 @@ async function scheduleOn(m: Member, date: string): Promise<Day> {
   return d
 }
 
-/** Own shift still mine (base day not given away, or an open post) AND covering someone that day. */
+/**
+ * Own shift still mine (base day not given away in full, only its PM given
+ * away, or an open post) AND covering someone that day.
+ */
 async function doubleBooked(m: Member, date: string): Promise<boolean> {
   const d = await scheduleOn(m, date)
-  const ownStillMine = (d.base && !d.given_away) || d.open_post_id !== null
+  const ownStillMine = (d.base && !d.given_away) || d.pm_given_away || d.open_post_id !== null
   return ownStillMine && d.picked_up
 }
 

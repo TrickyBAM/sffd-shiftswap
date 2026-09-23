@@ -4,13 +4,14 @@
 import type {
   LedgerRow,
   MemberCard,
+  MemberCardEntry,
   MyStats,
   NotifyScope,
   OnboardingResult,
   Profile,
   Rank,
 } from '@/lib/types/database'
-import { assertUuid, blankToNull, callRpc, resolveUserId, runMaybe, type Sb } from './core'
+import { assertUuid, blankToNull, callRpc, isUuid, resolveUserId, runMaybe, type Sb } from './core'
 
 /**
  * My own profiles row, or null when the signed-in user has none (it is
@@ -107,4 +108,24 @@ export async function getMyLedger(sb: Sb): Promise<LedgerRow[]> {
  */
 export async function getMemberCard(sb: Sb, userId: string): Promise<MemberCard> {
   return callRpc(sb, 'member_card', { p_user_id: assertUuid(userId, 'member') })
+}
+
+/** Most member cards member_cards() returns in one call (it refuses more). */
+export const MEMBER_CARDS_MAX = 50
+
+/**
+ * Several approved members' public summaries (member_cards), e.g. every
+ * requester on my post, in the order asked. Each card carries its `user_id`;
+ * members who aren't approved (or don't exist) are left out. Malformed and
+ * repeated ids are dropped; no request when none are left; more than 50 ids
+ * are fetched 50 at a time.
+ */
+export async function getMemberCards(sb: Sb, userIds: readonly string[]): Promise<MemberCardEntry[]> {
+  const ids = [...new Set(userIds)].filter(isUuid)
+  const cards: MemberCardEntry[] = []
+  for (let i = 0; i < ids.length; i += MEMBER_CARDS_MAX) {
+    const rows = await callRpc(sb, 'member_cards', { p_user_ids: ids.slice(i, i + MEMBER_CARDS_MAX) })
+    if (Array.isArray(rows)) cards.push(...rows.filter((row) => row && typeof row.user_id === 'string'))
+  }
+  return cards
 }

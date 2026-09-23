@@ -14,6 +14,7 @@ import {
   buildHistory,
   groupIncoming,
   groupTrades,
+  openCancelRequests,
   parseTradeTab,
   pendingActionCount,
   requestCounts,
@@ -60,6 +61,7 @@ export function TradesHub() {
         tab={tab}
         onTabChange={selectTab}
         onWithdrawn={onWithdrawn}
+        onChanged={refresh}
         offline={state.offline}
       />
     </div>
@@ -72,6 +74,7 @@ function TradesTabs({
   tab,
   onTabChange,
   onWithdrawn,
+  onChanged,
   offline,
 }: {
   me: string
@@ -79,26 +82,34 @@ function TradesTabs({
   tab: TradeTab
   onTabChange: (tab: string) => void
   onWithdrawn: (requestId: string) => void
+  /** Something changed on the server (e.g. a cancel request withdrawn): reload quietly. */
+  onChanged: () => void
   offline: boolean
 }) {
   // "Now" is the moment the data was loaded, so the view is stable between loads.
   const view = useMemo(() => {
     const nowMs = Date.parse(data.loadedAt)
     const groups = groupIncoming(data.incoming, nowMs)
-    const trades = groupTrades(data.confirmed, me)
+    const trades = groupTrades(data.confirmed, me, nowMs)
+    // Only cancel requests that can still be answered wait on me (TF-5).
+    const cancelRequests = openCancelRequests(data.cancelRequests, data.confirmed, nowMs)
     return {
       groups,
       trades,
+      cancelRequests,
       myRequests: activeRequests(data.myRequests, nowMs),
       counts: requestCounts(data.incoming),
-      history: buildHistory(data.historyShifts, data.closedRequests, data.myRequests, me, nowMs),
-      pendingCount: pendingActionCount(groups, data.cancelRequests),
+      history: buildHistory(data.historyShifts, data.closedRequests, data.myRequests, me, nowMs, data.undone ?? []),
+      pendingCount: pendingActionCount(groups, cancelRequests),
     }
   }, [data, me])
 
+  // Only Pending gets a count: it's the one tab with things that need an
+  // answer (a red bubble means "look here"), and it keeps the four tabs
+  // within a 375 px phone.
   const counts: Record<TradeTab, number> = {
     pending: view.pendingCount,
-    confirmed: view.trades.length,
+    confirmed: 0,
     history: 0,
     balances: 0,
   }
@@ -117,7 +128,7 @@ function TradesTabs({
         <PendingTab
           me={me}
           groups={view.groups}
-          cancelRequests={data.cancelRequests}
+          cancelRequests={view.cancelRequests}
           myRequests={view.myRequests}
           openPosts={data.openPosts}
           counts={view.counts}
@@ -126,7 +137,7 @@ function TradesTabs({
         />
       </TabPanel>
       <TabPanel value="confirmed">
-        <ConfirmedTab me={me} trades={view.trades} />
+        <ConfirmedTab me={me} trades={view.trades} onChanged={onChanged} offline={offline} />
       </TabPanel>
       <TabPanel value="history">
         <HistoryTab items={view.history} />

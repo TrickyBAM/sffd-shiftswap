@@ -3,14 +3,15 @@
 import { useEffect, useState } from 'react'
 import { MessageSquare, Repeat2, Star, Trash2, Users } from 'lucide-react'
 import { Avatar, Badge, Button, Card, CardHeader, ConfirmDialog, EmptyState, Skeleton, useToast } from '@/components/ui'
-import { cancelPost, confirmRequest, declineRequest, getMemberCard } from '@/lib/api'
+import { cancelPost, confirmRequest, declineRequest, getMemberCards } from '@/lib/api'
 import { toAppError } from '@/lib/errors'
+import { plural, relativeTime } from '@/lib/format'
 import { formatDate } from '@/lib/sffd/dates'
 import { stationLabel } from '@/lib/sffd/stations'
 import { createClient } from '@/lib/supabase/client'
 import type { MemberCard, Shift, ShiftRequest } from '@/lib/types/database'
 import { isStaleDataError, toastActionError } from '@/app/(app)/board/_lib/errors'
-import { currentTime, plural, timeAgo } from '@/app/(app)/board/_lib/format'
+import { currentTime } from '@/app/(app)/board/_lib/format'
 import { REQUEST_STATUS_LABELS, splitRequests } from '../_lib/trade-model'
 
 export interface PosterRequestsProps {
@@ -38,6 +39,7 @@ export function PosterRequests({ shift, requests, started, disabled, onChanged, 
   const [declining, setDeclining] = useState<ShiftRequest | null>(null)
   const [cancelling, setCancelling] = useState(false)
   const [nowMs] = useState(() => currentTime())
+  const cards = useMemberCards(pending.map((r) => r.requester_id))
 
   // The overview already says it started without anyone confirmed.
   if (started) return null
@@ -117,6 +119,8 @@ export function PosterRequests({ shift, requests, started, disabled, onChanged, 
               <RequestItem
                 key={r.id}
                 request={r}
+                card={cards.byId[r.requester_id] ?? null}
+                cardLoading={cards.loading}
                 nowMs={nowMs}
                 disabled={disabled}
                 onConfirm={() => setConfirming(r)}
@@ -139,7 +143,7 @@ export function PosterRequests({ shift, requests, started, disabled, onChanged, 
                     {r.requester_name}
                     <span className="text-fg-dim" suppressHydrationWarning>
                       {' '}
-                      · {timeAgo(r.created_at, nowMs)}
+                      · {relativeTime(r.created_at, nowMs, { style: 'inline' })}
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-1">
@@ -235,6 +239,9 @@ export function PosterRequests({ shift, requests, started, disabled, onChanged, 
 
 interface RequestItemProps {
   request: ShiftRequest
+  /** The requester's trust score and counts; null while loading or when unavailable. */
+  card: MemberCard | null
+  cardLoading: boolean
   nowMs: number
   disabled: boolean
   onConfirm: () => void
@@ -242,7 +249,7 @@ interface RequestItemProps {
   onMessage: () => void
 }
 
-function RequestItem({ request, nowMs, disabled, onConfirm, onDecline, onMessage }: RequestItemProps) {
+function RequestItem({ request, card, cardLoading, nowMs, disabled, onConfirm, onDecline, onMessage }: RequestItemProps) {
   const name = request.requester_name
   return (
     <li className="rounded-xl border border-line-strong bg-elevated/50 p-3">
@@ -254,10 +261,10 @@ function RequestItem({ request, nowMs, disabled, onConfirm, onDecline, onMessage
             {request.requester_rank} · {stationLabel(request.requester_station)}
             <span className="text-fg-dim" suppressHydrationWarning>
               {' '}
-              · asked {timeAgo(request.created_at, nowMs)}
+              · asked {relativeTime(request.created_at, nowMs, { style: 'inline' })}
             </span>
           </p>
-          <MemberStats userId={request.requester_id} />
+          <MemberStats card={card} loading={cardLoading} />
         </div>
       </div>
 
@@ -298,25 +305,46 @@ function RequestItem({ request, nowMs, disabled, onConfirm, onDecline, onMessage
   )
 }
 
-/** Trust score and covered/given counts from member_card (no contact details). */
-function MemberStats({ userId }: { userId: string }) {
-  const [state, setState] = useState<{ id: string; card: MemberCard | null } | null>(null)
+interface MemberCardsState {
+  /** Cards by member id (members who aren't approved are missing). */
+  byId: Readonly<Record<string, MemberCard>>
+  /** True while the cards for the current requesters are loading. */
+  loading: boolean
+}
+
+const NO_CARDS: Readonly<Record<string, MemberCard>> = {}
+
+/**
+ * Every requester's member card in one member_cards call (NEXT-09), reloaded
+ * when the set of requesters changes. Cards already loaded stay on screen
+ * meanwhile, so nothing flickers when one request is answered.
+ */
+function useMemberCards(userIds: readonly string[]): MemberCardsState {
+  const key = [...new Set(userIds)].sort().join(',')
+  const [state, setState] = useState<{ key: string; byId: Record<string, MemberCard> } | null>(null)
 
   useEffect(() => {
+    if (!key) return
     let cancelled = false
-    getMemberCard(createClient(), userId)
-      .then((card) => {
-        if (!cancelled) setState({ id: userId, card })
+    getMemberCards(createClient(), key.split(','))
+      .then((cards) => {
+        if (!cancelled) setState({ key, byId: Object.fromEntries(cards.map((c) => [c.user_id, c])) })
       })
       .catch(() => {
-        if (!cancelled) setState({ id: userId, card: null })
+        // A hint only: the requests still work without it.
+        if (!cancelled) setState((prev) => ({ key, byId: prev?.byId ?? {} }))
       })
     return () => {
       cancelled = true
     }
-  }, [userId])
+  }, [key])
 
-  if (!state || state.id !== userId) {
+  return { byId: state?.byId ?? NO_CARDS, loading: key !== '' && state?.key !== key }
+}
+
+/** Trust score and covered/given counts from member_cards (no contact details). */
+function MemberStats({ card, loading }: { card: MemberCard | null; loading: boolean }) {
+  if (!card && loading) {
     return (
       <span role="status" className="mt-1.5 block">
         <span className="sr-only">Loading their trade record…</span>
@@ -324,8 +352,8 @@ function MemberStats({ userId }: { userId: string }) {
       </span>
     )
   }
-  if (!state.card) return <p className="mt-1.5 text-xs text-fg-dim">Trade record unavailable right now.</p>
-  const { trust_score, covered, given } = state.card
+  if (!card) return <p className="mt-1.5 text-xs text-fg-dim">Trade record unavailable right now.</p>
+  const { trust_score, covered, given } = card
   return (
     <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-fg-muted">
       <Badge tone={trust_score >= 80 ? 'green' : 'neutral'}>

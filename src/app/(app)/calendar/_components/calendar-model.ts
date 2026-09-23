@@ -1,13 +1,16 @@
 // Pure helpers for the Calendar screen (ARCHITECTURE §7.2 "Calendar colors"):
-// visible ranges, the plain-English status lines and actions for a day, the
-// marks drawn in each grid cell, the "Coming up" list and balance copy.
+// visible ranges, the blue "open shifts you could take" counts, the
+// plain-English status lines and actions for a day, the marks drawn in each
+// grid cell, the "Coming up" list and balance copy.
 // No I/O and no React, so everything here is unit-tested
 // (tests/unit/calendar-model.test.ts).
 
-import type { DayTone, ScheduleDay } from '@/lib/schedule/effective'
-import { diffDays, formatDate, isStarted, monthGrid, type Ymd } from '@/lib/sffd/dates'
+import { plural, tourLabel } from '@/lib/format'
+import { PM_GIVEN_AWAY_HOURS, type DayTone, type ScheduleDay, type ScheduleShift } from '@/lib/schedule/effective'
+import { diffDays, formatDate, isStarted, isYmd, monthGrid, type Ymd } from '@/lib/sffd/dates'
 import { isShiftType, SHIFT_TYPES } from '@/lib/sffd/shift-types'
 import { stationLabel } from '@/lib/sffd/stations'
+import { tourWorks } from '@/lib/sffd/tours'
 import type { Shift } from '@/lib/types/database'
 
 /** Shifts can be posted up to this many days ahead (post_shift TOO_FAR_AHEAD). */
@@ -52,6 +55,86 @@ export function visibleRange({ year, month }: YearMonth): DateRange {
 export function futurePart(range: DateRange, today: Ymd): DateRange | null {
   if (range.to < today) return null
   return { from: range.from < today ? today : range.from, to: range.to }
+}
+
+// ---------------------------------------------------------------------------
+// Open shifts I could take (the blue counts)
+// ---------------------------------------------------------------------------
+
+/**
+ * The columns of an open shift the blue counts need. The rows come from the
+ * same query as the Board's "Only shifts I can take" (listBoardShifts with
+ * `eligibleFor`: open, not started, my rank, not mine, within the post's
+ * accept limit), across every location.
+ */
+export interface OpenShiftLite {
+  id: string
+  date: Ymd
+  shift_type: string
+  starts_at: string
+  return_dates: Ymd[]
+}
+
+/** Keeps only what the counts need (and what the offline snapshot stores). */
+export function toOpenShiftLite(shift: Pick<Shift, 'id' | 'date' | 'shift_type' | 'starts_at' | 'return_dates'>): OpenShiftLite {
+  return {
+    id: shift.id,
+    date: shift.date,
+    shift_type: shift.shift_type,
+    starts_at: shift.starts_at,
+    return_dates: Array.isArray(shift.return_dates) ? shift.return_dates.filter(isYmd) : [],
+  }
+}
+
+export interface TakeContext {
+  userId: string
+  /** My tour (1–31) or null for "No tour". */
+  tour: number | null
+  /** My open/covered shifts (as poster or coverer) through the next 180 days. */
+  myShifts: readonly ScheduleShift[]
+  now: Date
+}
+
+/**
+ * Could I give `ymd` back as the return date of a SwapMatch? Mirrors the
+ * database's private.can_give_return_date (RETURN_NOT_YOUR_DAY): that day's
+ * shift hasn't started, it's one of my tour days (any day when I have no
+ * tour), and I have no post and no picked-up shift that day.
+ */
+export function canGiveReturnDate(ymd: Ymd, shiftType: string, ctx: TakeContext): boolean {
+  if (!isYmd(ymd) || !isShiftType(shiftType)) return false
+  if (isStarted(ymd, shiftType, ctx.now)) return false
+  if (ctx.tour != null && !tourWorks(ctx.tour, ymd)) return false
+  return !ctx.myShifts.some(
+    (s) =>
+      s.date === ymd &&
+      ((s.poster_id === ctx.userId && (s.status === 'open' || s.status === 'covered')) ||
+        (s.coverer_id === ctx.userId && s.status === 'covered')),
+  )
+}
+
+/**
+ * Open shifts I could take, counted per date ({ '2026-10-14': 2 }). Drops
+ * shifts that have started since they were loaded and SwapMatch posts where
+ * none of the offered return dates is a day I could give. The day rule (I'm
+ * working, covering or have my own post that day) is applied per day by
+ * computeMonthDays() and availableCount().
+ */
+export function takeableCounts(open: readonly OpenShiftLite[], ctx: TakeContext): Record<Ymd, number> {
+  const out: Record<Ymd, number> = {}
+  const seen = new Set<string>()
+  const nowMs = ctx.now.getTime()
+  for (const shift of open) {
+    if (seen.has(shift.id) || !isYmd(shift.date)) continue
+    seen.add(shift.id)
+    const startsAt = Date.parse(shift.starts_at)
+    if (Number.isFinite(startsAt) && startsAt <= nowMs) continue
+    if (shift.return_dates.length > 0 && !shift.return_dates.some((rd) => canGiveReturnDate(rd, shift.shift_type, ctx))) {
+      continue
+    }
+    out[shift.date] = (out[shift.date] ?? 0) + 1
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------
@@ -112,10 +195,6 @@ export function shortName(name: string | null | undefined): string {
   if (w.length === 0) return ''
   if (w.length === 1) return w[0]
   return `${w[0][0]}. ${w[w.length - 1]}`
-}
-
-function plural(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`
 }
 
 /** "24-Hour · 0800–0800" / "PM · 1600–0800". */
@@ -181,10 +260,18 @@ export function postability(day: ScheduleDay, ctx: Pick<DayContext, 'tour' | 'to
 export function describeDay(day: ScheduleDay, ctx: DayContext): StatusLine[] {
   const lines: StatusLine[] = []
   const past = day.ymd < ctx.today
-  const tourText = ctx.tour != null ? ` (Tour ${ctx.tour})` : ''
+  const tourText = ctx.tour != null ? ` (${tourLabel(ctx.tour)})` : ''
+  const onDuty = past ? 'You were on duty' : "You're on duty"
 
-  if (day.base && !day.givenAway) {
-    lines.push({ tone: 'working', text: past ? `You were on duty${tourText}.` : `You're on duty${tourText}.` })
+  if (day.pmGivenAway) {
+    // Only the PM is covered: I still work the day part (TF-1).
+    lines.push({
+      tone: 'working',
+      text: `${onDuty} ${PM_GIVEN_AWAY_HOURS}${tourText}.`,
+      detail: `PM covered by ${day.pmGivenAway.byName || 'another member'}`,
+    })
+  } else if (day.base && !day.givenAway) {
+    lines.push({ tone: 'working', text: `${onDuty}${tourText}.` })
   }
 
   if (day.openPost) {
@@ -195,14 +282,16 @@ export function describeDay(day: ScheduleDay, ctx: DayContext): StatusLine[] {
     })
   }
 
-  if (day.givenAway) {
+  // A plain PM give-away is fully described by the on-duty line above; a
+  // SwapMatch one still needs the "you work their shift on …" part.
+  if (day.givenAway && (!day.pmGivenAway || day.givenAway.isSwap)) {
     const g = day.givenAway
     const name = g.byName || 'Another member'
-    let text = past ? `${name} covered you.` : `${name} is covering you.`
+    const lead = `${name} ${past ? 'covered' : 'is covering'} ${day.pmGivenAway ? 'your PM' : 'you'}`
+    let text = `${lead}.`
     if (g.isSwap) {
       const row = ctx.lookup.get(g.shiftId)
       const other = row ? partnerLeg(row, ctx.lookup) : null
-      const lead = past ? `${name} covered you` : `${name} is covering you`
       text = other
         ? `${lead} — SwapMatch: you ${other.date < ctx.today ? 'worked' : 'work'} ${firstName(name)}'s shift on ${formatDate(other.date, 'weekday')}.`
         : `${lead} — SwapMatch.`
@@ -250,6 +339,15 @@ export interface DayAction {
   href: string
 }
 
+/**
+ * The Board for one day showing the same shifts the blue count counts: every
+ * location, "Only shifts I can take" on (scope=all; the Board's default is my
+ * battalion).
+ */
+export function boardDayHref(ymd: Ymd): string {
+  return `/board?date=${encodeURIComponent(ymd)}&scope=all`
+}
+
 /** Buttons for the day sheet: Post this shift, See N available shifts, View trade. */
 export function dayActions(day: ScheduleDay, ctx: DayContext): DayAction[] {
   const actions: DayAction[] = []
@@ -267,7 +365,7 @@ export function dayActions(day: ScheduleDay, ctx: DayContext): DayAction[] {
       key: 'board',
       kind: 'board',
       label: `See ${plural(open, 'available shift')}`,
-      href: `/board?date=${day.ymd}`,
+      href: boardDayHref(day.ymd),
     })
   }
   if (day.openPost) {
@@ -307,7 +405,10 @@ export interface DayBar {
 
 export interface DayMarks {
   bars: DayBar[]
-  /** Given-away tour day: red outline. */
+  /**
+   * Someone covers my shift that day: red outline. With a red "working" bar
+   * as well when they cover only the PM (I still work 0800–1600).
+   */
   outlined: boolean
   /** Short name of whoever covers me ("M. Lee"), for the outlined cell. */
   coveredBy: string | null
@@ -320,7 +421,10 @@ export function dayMarks(day: ScheduleDay): DayMarks {
   const bars: DayBar[] = []
   const phrases: string[] = []
 
-  if (day.base && !day.givenAway) {
+  if (day.pmGivenAway) {
+    bars.push({ kind: 'working' })
+    phrases.push(`on duty ${PM_GIVEN_AWAY_HOURS}`)
+  } else if (day.base && !day.givenAway) {
     bars.push({ kind: 'working' })
     phrases.push('on duty')
   }
@@ -335,7 +439,7 @@ export function dayMarks(day: ScheduleDay): DayMarks {
   }
   if (day.givenAway) {
     if (day.givenAway.isSwap) bars.push({ kind: 'swap' })
-    phrases.push(`covered by ${day.givenAway.byName || 'another member'}`)
+    phrases.push(`${day.pmGivenAway ? 'PM covered by' : 'covered by'} ${day.givenAway.byName || 'another member'}`)
     if (day.givenAway.isSwap) phrases.push('SwapMatch')
   }
   const open = availableCount(day)
@@ -411,6 +515,17 @@ function comingUpItem(day: ScheduleDay, ctx: DayContext): ComingUpItem | null {
       tone: 'openPost',
     }
   }
+  if (day.pmGivenAway) {
+    // I still work the day part; only the PM is covered (TF-1).
+    const g = day.pmGivenAway
+    return {
+      ...base,
+      title: `On duty ${PM_GIVEN_AWAY_HOURS}`,
+      detail: [`PM covered by ${g.byName || 'another member'}`, g.isSwap ? 'SwapMatch' : null].filter(Boolean).join(' · '),
+      tone: g.isSwap ? 'swap' : 'working',
+      outlined: true,
+    }
+  }
   if (day.givenAway) {
     const g = day.givenAway
     return {
@@ -422,7 +537,7 @@ function comingUpItem(day: ScheduleDay, ctx: DayContext): ComingUpItem | null {
     }
   }
   if (day.base) {
-    return { ...base, title: 'On duty', detail: ctx.tour != null ? `Tour ${ctx.tour}` : 'Your shift', tone: 'working' }
+    return { ...base, title: 'On duty', detail: ctx.tour != null ? tourLabel(ctx.tour) : 'Your shift', tone: 'working' }
   }
   return null
 }

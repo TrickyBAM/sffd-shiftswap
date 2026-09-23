@@ -1,48 +1,33 @@
-// Form rules shared by sign-up (browser + server action), onboarding and the
-// password change. They mirror the database checks in complete_onboarding
-// (name 2–80 characters, phone 7–20 of digits/+/-/()/space) so members see a
-// clear message before anything is sent.
+// The log-in, sign-up and onboarding forms (browser + the sign-up server
+// action). The field rules themselves — name, phone, password, employee ID —
+// come from '@/lib/validation', the one copy every screen uses (CC-6), so a
+// phone number accepted here is accepted everywhere else, and the other way
+// round. They mirror the database checks in complete_onboarding, so members
+// see a clear message before anything is sent.
 
 import { z } from 'zod'
 import { isRank } from '@/lib/sffd/ranks'
 import { isStation } from '@/lib/sffd/stations'
 import { isTour } from '@/lib/sffd/tours'
+import {
+  cleanName,
+  employeeIdError,
+  fullNameError,
+  newPasswordSchema,
+  PASSWORD_MISMATCH_MESSAGE,
+  phoneSchema,
+} from '@/lib/validation'
 
-export const NAME_MIN = 2
-export const NAME_MAX = 80
-export const PASSWORD_MIN = 8
-/** Supabase Auth (bcrypt) ignores anything past 72 characters. */
-export const PASSWORD_MAX = 72
-export const EMPLOYEE_ID_MAX = 40
-
-const PHONE_RE = /^[0-9+() -]{7,20}$/
-
-/** Collapses runs of whitespace and trims (same as the database's clean_name). */
-export function cleanName(value: string): string {
-  return value.replace(/\s+/g, ' ').trim()
+/** zod check from one of the shared validators (message, or null when fine). */
+function checkWith(validate: (value: string) => string | null) {
+  return (value: string, ctx: z.RefinementCtx) => {
+    const message = validate(value)
+    if (message) ctx.addIssue({ code: 'custom', message })
+  }
 }
 
-/** True for a phone number the database accepts that also has at least 7 digits. */
-export function isValidPhone(value: string): boolean {
-  const phone = value.trim()
-  return PHONE_RE.test(phone) && (phone.match(/\d/g)?.length ?? 0) >= 7
-}
-
-export const fullNameSchema = z
-  .string()
-  .transform(cleanName)
-  .pipe(
-    z
-      .string()
-      .min(NAME_MIN, 'Enter your first and last name.')
-      .max(NAME_MAX, `Keep your name under ${NAME_MAX} characters.`),
-  )
-
-export const phoneSchema = z
-  .string()
-  .trim()
-  .min(1, 'Enter your mobile number.')
-  .refine(isValidPhone, 'Enter a phone number with area code, like 415-555-0123.')
+/** A full name: whitespace collapsed, 2–80 characters. */
+export const fullNameSchema = z.string().transform(cleanName).superRefine(checkWith(fullNameError))
 
 export const emailSchema = z
   .string()
@@ -50,11 +35,6 @@ export const emailSchema = z
   .toLowerCase()
   .min(1, 'Enter your email address.')
   .pipe(z.email('Enter a valid email address, like name@example.com.'))
-
-export const newPasswordSchema = z
-  .string()
-  .min(PASSWORD_MIN, `Use at least ${PASSWORD_MIN} characters.`)
-  .max(PASSWORD_MAX, `Use ${PASSWORD_MAX} characters or fewer.`)
 
 // ---------------------------------------------------------------------------
 // Log in
@@ -82,7 +62,7 @@ export const signupFormSchema = z
   })
   .refine((values) => values.password === values.confirmPassword, {
     path: ['confirmPassword'],
-    error: "The two passwords don't match.",
+    error: PASSWORD_MISMATCH_MESSAGE,
   })
 
 export type SignupFormValues = z.input<typeof signupFormSchema>
@@ -116,26 +96,7 @@ export const onboardingSchema = z.object({
     .nullable()
     .optional()
     .refine((tour) => tour === null || isTour(tour), 'Choose your tour, or "No tour" if you aren\'t on one.'),
-  employeeId: z
-    .string()
-    .trim()
-    .max(EMPLOYEE_ID_MAX, `Employee ID can be up to ${EMPLOYEE_ID_MAX} characters.`),
+  employeeId: z.string().trim().superRefine(checkWith(employeeIdError)),
 })
 
 export type OnboardingFormValues = z.input<typeof onboardingSchema>
-
-// ---------------------------------------------------------------------------
-// New password (forced or voluntary change)
-// ---------------------------------------------------------------------------
-
-export const changePasswordSchema = z
-  .object({
-    password: newPasswordSchema,
-    confirmPassword: z.string().min(1, 'Type your new password again.'),
-  })
-  .refine((values) => values.password === values.confirmPassword, {
-    path: ['confirmPassword'],
-    error: "The two passwords don't match.",
-  })
-
-export type ChangePasswordValues = z.input<typeof changePasswordSchema>

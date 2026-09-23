@@ -5,8 +5,9 @@ import { useSearchParams } from 'next/navigation'
 import { ArrowLeftRight, FileDown } from 'lucide-react'
 import { Button, EmptyState, ErrorState, LoadingBlock, cn, useToast } from '@/components/ui'
 import { useRealtimeRefetch } from '@/hooks/useRealtimeRefetch'
-import { adminCancelPost, adminVoidTrade } from '@/lib/api'
+import { adminCancelPost, adminVoidTrade, listAdminShifts } from '@/lib/api'
 import { toAppError } from '@/lib/errors'
+import { plural } from '@/lib/format'
 import { formatDate, todayPT } from '@/lib/sffd/dates'
 import { createClient } from '@/lib/supabase/client'
 import type { Shift } from '@/lib/types/database'
@@ -14,7 +15,6 @@ import { Pager } from '../../_components/ListControls'
 import { ReasonConfirmDialog } from '../../_components/ReasonConfirmDialog'
 import { useAdmin } from '../../_components/AdminProvider'
 import { downloadTextFile } from '../../_lib/csv'
-import { plural } from '../../_lib/format'
 import { useAsyncData, useDebouncedValue } from '../../_lib/useAsyncData'
 import {
   DEFAULT_TRADE_FILTERS,
@@ -22,7 +22,7 @@ import {
   TRADE_PAGE_SIZE,
   fetchAllTrades,
   isTradeScope,
-  queryAdminTrades,
+  tradeListOptions,
   type TradeFilters,
   type TradeScope,
 } from '../_lib/query'
@@ -61,7 +61,10 @@ function TradesList({ initialScope }: { initialScope: TradeScope }) {
 
   const trades = useAsyncData(async () => {
     const loadedAt = new Date()
-    const result = await queryAdminTrades(createClient(), query, { offset, limit: TRADE_PAGE_SIZE, now: loadedAt })
+    const result = await listAdminShifts(
+      createClient(),
+      tradeListOptions(query, { offset, limit: TRADE_PAGE_SIZE, now: loadedAt }),
+    )
     return { ...result, loadedAt }
   }, `${filterKey}|${offset}`)
   // Members confirm and cancel trades all the time; keep the list current.

@@ -5,12 +5,13 @@ import { Undo2 } from 'lucide-react'
 import { Button, Card, CardHeader, ConfirmDialog, Field, Textarea, useToast } from '@/components/ui'
 import { requestTradeCancel, respondTradeCancel, withdrawTradeCancel } from '@/lib/api'
 import { toAppError } from '@/lib/errors'
+import { relativeTime } from '@/lib/format'
 import { formatDate } from '@/lib/sffd/dates'
 import { createClient } from '@/lib/supabase/client'
 import type { Shift } from '@/lib/types/database'
 import { Notice } from '@/app/(app)/board/_components/Notice'
 import { isStaleDataError, toastActionError, type ErrorExtras } from '@/app/(app)/board/_lib/errors'
-import { currentTime, timeAgo } from '@/app/(app)/board/_lib/format'
+import { currentTime } from '@/app/(app)/board/_lib/format'
 import { otherPartyName, type CancelState } from '../_lib/trade-model'
 
 export const CANCEL_REASON_MAX = 500
@@ -31,6 +32,12 @@ interface CancelProps {
   /** Actions off (offline snapshot). */
   disabled: boolean
   onChanged: () => Promise<void>
+  /**
+   * Either leg has started: agreeing is no longer possible (only an admin can
+   * void it), but the request can still be withdrawn or declined so it never
+   * sits there unanswerable.
+   */
+  started?: boolean
 }
 
 /** What agreeing to cancel does, from my side. */
@@ -61,14 +68,14 @@ function useCancelAction(onChanged: () => Promise<void>) {
  * A cancel request is waiting: the other member asked (Agree / Keep the
  * trade), or I asked (Withdraw).
  */
-export function CancelBanner({ shift, returnLeg, me, state, disabled, onChanged }: CancelProps) {
+export function CancelBanner({ shift, returnLeg, me, state, disabled, onChanged, started = false }: CancelProps) {
   const toast = useToast()
   const run = useCancelAction(onChanged)
   const [agreeing, setAgreeing] = useState(false)
   const [busy, setBusy] = useState<'decline' | 'withdraw' | null>(null)
   const [nowMs] = useState(() => currentTime())
   const other = otherPartyName(shift, me)
-  const asked = timeAgo(shift.cancel_requested_at, nowMs)
+  const asked = relativeTime(shift.cancel_requested_at, nowMs, { style: 'inline' })
 
   async function keepTrade() {
     setBusy('decline')
@@ -112,7 +119,9 @@ export function CancelBanner({ shift, returnLeg, me, state, disabled, onChanged 
         }
       >
         <span className="block" suppressHydrationWarning>
-          Sent {asked}. Waiting for {other} to answer. Until they agree, the trade stands.
+          {started
+            ? `Sent ${asked}. The trade has started, so it can't be cancelled here any more — withdraw this request, and ask an admin if the trade needs to be voided.`
+            : `Sent ${asked}. Waiting for ${other} to answer. Until they agree, the trade stands.`}
         </span>
         {shift.cancel_reason ? <span className="mt-1 block break-words">Your reason: “{shift.cancel_reason}”</span> : null}
       </Notice>
@@ -128,18 +137,22 @@ export function CancelBanner({ shift, returnLeg, me, state, disabled, onChanged 
         title={`${other} asked to cancel this trade`}
         actions={
           <>
-            <Button variant="danger" disabled={disabled || busy != null} onClick={() => setAgreeing(true)}>
-              Agree to cancel
-            </Button>
+            {started ? null : (
+              <Button variant="danger" disabled={disabled || busy != null} onClick={() => setAgreeing(true)}>
+                Agree to cancel
+              </Button>
+            )}
             <Button variant="secondary" loading={busy === 'decline'} disabled={disabled} onClick={keepTrade}>
-              Decline
+              {started ? 'Dismiss — keep the trade' : 'Decline'}
             </Button>
           </>
         }
       >
         {shift.cancel_reason ? <span className="block break-words">Reason: “{shift.cancel_reason}”</span> : null}
         <span className="mt-1 block" suppressHydrationWarning>
-          Asked {asked}. Both of you must agree. If you decline, the trade stays confirmed and {other} is told.
+          {started
+            ? `Asked ${asked}. The trade has started, so only an admin can void it now. Dismiss the request to keep things tidy.`
+            : `Asked ${asked}. Both of you must agree. If you decline, the trade stays confirmed and ${other} is told.`}
         </span>
       </Notice>
 

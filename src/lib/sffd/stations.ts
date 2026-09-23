@@ -99,8 +99,6 @@ const STATION_BY_NUMBER = new Map(STATIONS.map((s) => [s.station, s]))
 const BATTALION_BY_ID = new Map(BATTALIONS.map((b) => [b.id, b]))
 const DIVISION_BY_ID = new Map(DIVISIONS.map((d) => [d.id, d]))
 
-export const DIVISION_IDS: readonly number[] = Object.freeze(DIVISIONS.map((d) => d.id))
-export const BATTALION_IDS: readonly number[] = Object.freeze(BATTALIONS.map((b) => b.id))
 export const STATION_NUMBERS: readonly number[] = Object.freeze(STATIONS.map((s) => s.station))
 
 export function isStation(value: unknown): value is number {

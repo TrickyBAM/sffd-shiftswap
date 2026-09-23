@@ -118,7 +118,11 @@ export interface TestDb {
    * the rows for set-returning functions, otherwise the scalar result.
    */
   rpc<T = unknown>(actor: Actor, name: string, args?: Record<string, unknown>): Promise<T>
-  /** Insert into auth.users (the trigger creates the profile); returns the id. */
+  /**
+   * Insert a confirmed account into auth.users, like the app's sign-up
+   * (admin.createUser with email_confirm: true); the trigger creates the
+   * profile. Returns the id.
+   */
   createAuthUser(email: string, fullName: string): Promise<string>
   /** A member set up directly in SQL: approved + acknowledged by default. */
   createMember(opts?: MemberOptions): Promise<Member>
@@ -361,7 +365,7 @@ export async function createTestDb(): Promise<TestDb> {
 
   async function createAuthUser(email: string, fullName: string): Promise<string> {
     const row = await one<{ id: string }>(
-      `insert into auth.users (email, raw_user_meta_data) values ($1, $2) returning id`,
+      `insert into auth.users (email, email_confirmed_at, raw_user_meta_data) values ($1, now(), $2) returning id`,
       [email, { full_name: fullName }],
     )
     return row.id

@@ -98,11 +98,16 @@ export function useProfileStats(userId: string): {
     setVersion((v) => v + 1)
   }, [])
 
-  // Realtime events only trigger a refetch (ARCHITECTURE §6.7).
+  // Realtime events only trigger a refetch (ARCHITECTURE §6.7). Undoing or
+  // voiding a trade clears the shift's coverer_id, so the coverer gets no
+  // event from the shifts filters (they match the new row): my requests and
+  // my alerts change in the same transaction and catch that (TF-7).
   useRealtimeRefetch(
     [
       { table: 'shifts', filter: `poster_id=eq.${userId}` },
       { table: 'shifts', filter: `coverer_id=eq.${userId}` },
+      { table: 'shift_requests', filter: `requester_id=eq.${userId}` },
+      { table: 'notifications', filter: `user_id=eq.${userId}` },
     ],
     refresh,
     { name: 'profile-stats', debounceMs: 800 },

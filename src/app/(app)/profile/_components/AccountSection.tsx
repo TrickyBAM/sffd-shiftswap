@@ -2,14 +2,10 @@
 
 import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { ChevronRight, FileText, KeyRound, LogOut, ShieldCheck } from 'lucide-react'
-import { Button, Card, useToast } from '@/components/ui'
+import { Button, Card } from '@/components/ui'
 import { useProfile } from '@/components/providers/ProfileProvider'
-import { errorMessage } from '@/lib/errors'
-import { clearSnapshots } from '@/lib/offline-cache'
-import { clearAppCaches, unsubscribeFromPush } from '@/lib/push/client'
-import { createClient } from '@/lib/supabase/client'
+import { signOutOnThisDevice } from '@/lib/auth/sign-out'
 import { ChangePasswordSheet } from './ChangePasswordSheet'
 import { ProfileSection } from './ProfileSection'
 
@@ -19,31 +15,17 @@ const ROW =
 /** Password, admin/privacy links and sign out. */
 export function AccountSection() {
   const { profile, isAdmin } = useProfile()
-  const router = useRouter()
-  const toast = useToast()
   const [changingPassword, setChangingPassword] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
 
-  // ARCHITECTURE §9: turn off push for this device, clear caches and offline
-  // snapshots, then end the session on this device only.
+  // The one sign-out path (src/lib/auth/sign-out.ts): turns off alerts on this
+  // device, clears saved data and ends the session here, even with no signal,
+  // then fully reloads /login so nothing of this member stays on screen or in
+  // memory. It never fails, so the button stays busy until /login loads.
   async function signOut() {
     if (signingOut) return
     setSigningOut(true)
-    try {
-      const sb = createClient()
-      await unsubscribeFromPush(sb)
-      await clearAppCaches()
-      clearSnapshots()
-      const { error } = await sb.auth.signOut({ scope: 'local' })
-      if (error) throw error
-    } catch (error) {
-      setSigningOut(false)
-      toast.error("Couldn't sign out", errorMessage(error))
-      return
-    }
-    // Stay busy until the login page takes over.
-    router.replace('/login')
-    router.refresh()
+    await signOutOnThisDevice()
   }
 
   return (

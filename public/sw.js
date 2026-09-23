@@ -12,7 +12,12 @@
  * Versioning: the page registers `/sw.js?v=<deploy version>`, so every deploy installs a
  * new worker whose caches are named after that version; old caches are deleted when it
  * activates. The new worker waits until the page asks it to take over (SKIP_WAITING,
- * sent from the "New version available" toast).
+ * sent from the "New version available" toast, or right away when the page is already
+ * running that version). This file's bytes don't change between deploys, so
+ * registration.update() alone can't see a new deploy: the page reads the deployed
+ * version from the X-App-Version header on /sw.js and registers the new URL.
+ *
+ * Sign-out never deletes STATIC_CACHE: it holds no member data (see CLEAR_CACHES).
  */
 
 const VERSION = new URL(self.location.href).searchParams.get('v') || 'dev'
@@ -93,8 +98,18 @@ self.addEventListener('message', (event) => {
   if (type === 'SKIP_WAITING') {
     self.skipWaiting()
   } else if (type === 'CLEAR_CACHES') {
-    // Sign-out: drop everything this origin has cached.
-    event.waitUntil(caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key)))))
+    // Sent by pages from older builds at sign-out. Only drop caches that could
+    // hold a member's data (none today; the pre-v1 worker's page caches did).
+    // STATIC_CACHE holds only hashed assets, icons and /offline, so it stays:
+    // deleting it would leave a plain-text offline screen until the next deploy.
+    event.waitUntil(
+      caches
+        .keys()
+        .then((keys) => Promise.all(keys.filter((key) => key !== STATIC_CACHE).map((key) => caches.delete(key))))
+        .then(() => caches.match(OFFLINE_URL))
+        .then((offline) => (offline ? undefined : caches.open(STATIC_CACHE).then(precacheOfflinePage)))
+        .catch(() => undefined),
+    )
   }
 })
 

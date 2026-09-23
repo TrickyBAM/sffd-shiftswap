@@ -35,9 +35,15 @@ export function isNavActive(pathname: string, href: string): boolean {
 }
 
 /**
- * Main navigation: glassmorphic bottom tab bar with a raised Post button on phones,
- * left rail on desktop (md+). Only one is displayed at a time, so each is its own
- * "Main" landmark and the hidden one is removed from the accessibility tree by CSS.
+ * Main navigation: glassmorphic bottom tab bar with a raised Post button on phones
+ * (portrait and landscape), left rail on desktop. Only one is displayed at a time, so
+ * each is its own "Main" landmark and the hidden one is removed from the accessibility
+ * tree by CSS.
+ *
+ * "Desktop" = 1024 px and wider, or 768 px and wider with a fine pointer (mouse or
+ * trackpad): `[@media(min-width:1024px),(min-width:768px)_and_(pointer:fine)]:`. A phone
+ * turned sideways (844–932 px, touch) keeps the tab bar (UX-16). The same variant is
+ * written out in AppShell; keep them identical (Tailwind reads class names literally).
  */
 export default function Navigation() {
   const pathname = usePathname() ?? ''
@@ -52,7 +58,7 @@ export default function Navigation() {
 
 function DesktopRail({ pathname }: { pathname: string }) {
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[var(--rail-width)] flex-col border-r border-line bg-card pl-safe md:flex">
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[var(--rail-width)] flex-col border-r border-line bg-card pl-safe [@media(min-width:1024px),(min-width:768px)_and_(pointer:fine)]:flex">
       <Link
         href="/calendar"
         className="flex min-h-16 items-center gap-2 border-b border-line px-5 py-5"
@@ -119,7 +125,7 @@ function MobileTabBar({ pathname }: { pathname: string }) {
   return (
     <nav
       aria-label="Main"
-      className="glass-nav fixed inset-x-0 bottom-0 z-40 border-t border-line pb-safe px-safe md:hidden"
+      className="glass-nav fixed inset-x-0 bottom-0 z-40 border-t border-line pb-safe px-safe [@media(min-width:1024px),(min-width:768px)_and_(pointer:fine)]:hidden"
     >
       <ul className="mx-auto flex h-[var(--nav-height)] max-w-lg items-stretch justify-around">
         {NAV_ITEMS.map((item) => {

@@ -1,15 +1,21 @@
 // Client-side effective schedule (ARCHITECTURE §4, §7.2). Mirrors SQL
 // public.my_schedule():
 //
-//   base      = tour is not null and tourWorks(tour, d)
-//   givenAway = a covered shift with poster_id = me on d
-//   pickedUp  = a covered shift with coverer_id = me on d
-//   working   = (base and not givenAway) or pickedUp
+//   base        = tour is not null and tourWorks(tour, d)
+//   givenAway   = a covered shift with poster_id = me on d (either type)
+//   pmGivenAway = that covered shift is a PM (1600–0800): I still work 0800–1600
+//   pickedUp    = a covered shift with coverer_id = me on d
+//   working     = (base and not a 24-Hour give-away) or pmGivenAway or pickedUp
+//
+// Only giving away a 24-Hour frees the day. Giving away the PM of a tour day
+// leaves the member on duty 0800–1600, so the day stays red and they can't
+// pick up another shift that day (YOU_WORK_THAT_DAY).
 //
 // SwapMatch return legs are ordinary covered rows, so they need no special
 // casing except for the purple "swap" marker. Pure functions — no I/O.
 
 import { eachDay, monthGrid, type Ymd } from '@/lib/sffd/dates'
+import { SHIFT_TYPES, isShiftType } from '@/lib/sffd/shift-types'
 import { tourWorks } from '@/lib/sffd/tours'
 
 /** The columns of a `shifts` row this module needs (full rows are fine). */
@@ -64,9 +70,15 @@ export interface ScheduleDay {
   inMonth: boolean
   /** One of my tour days (ignores trades). */
   base: boolean
+  /** The covered shift I gave away this day (a 24-Hour or only the PM). */
   givenAway: GivenAway | null
+  /**
+   * Same as `givenAway` when what I gave away is only the PM (1600–0800):
+   * I still work 0800–1600 that day, so `working` stays true.
+   */
+  pmGivenAway: GivenAway | null
   pickedUp: PickedUp | null
-  /** Effective: on duty after trades. */
+  /** Effective: on duty after trades (for at least part of the day). */
   working: boolean
   /** My open (not yet covered) post on this day. */
   openPost: OpenPost | null
@@ -171,12 +183,16 @@ function buildDay(input: ScheduleInput, index: DayIndex, ymd: Ymd, inMonth: bool
       }
     : null
 
-  const working = (base && !givenAway) || Boolean(pickedUp)
+  // Only a 24-Hour give-away frees the day; after giving away the PM I still
+  // work 0800–1600.
+  const pmGivenAway = givenAway && givenAway.shiftType === 'PM' ? givenAway : null
+  const working = (base && !givenAway) || Boolean(pmGivenAway) || Boolean(pickedUp)
   const day: Omit<ScheduleDay, 'tone'> = {
     ymd,
     inMonth,
     base,
     givenAway,
+    pmGivenAway,
     pickedUp,
     working,
     openPost: open ? { shiftId: open.id, shiftType: open.shift_type } : null,
@@ -207,4 +223,57 @@ export function computeMonthDays(input: MonthScheduleInput): MonthSchedule {
     week.map(({ ymd, inMonth }) => buildDay(input, index, ymd, inMonth)),
   )
   return { year: input.year, month: input.month, weeks, days: weeks.flat().filter((d) => d.inMonth) }
+}
+
+// ---------------------------------------------------------------------------
+// Plain-English duty lines (calendar day sheet, "Coming up", cell labels)
+// ---------------------------------------------------------------------------
+
+/** "0800–0800" / "1600–0800" for a shift type (the raw value if unknown). */
+function typeHours(shiftType: string): string {
+  return isShiftType(shiftType) ? SHIFT_TYPES[shiftType].description : shiftType
+}
+
+/** The hours of my day shift when I gave away only the PM. */
+export const PM_GIVEN_AWAY_HOURS = '0800–1600'
+
+/**
+ * The hours I'm on duty that day in fire-service time, or null when I'm off:
+ *   '0800–0800' my 24-hour tour day (or a picked-up 24-Hour)
+ *   '0800–1600' my tour day with the PM given away
+ *   '1600–0800' a picked-up PM
+ */
+export function dutyHours(day: Pick<ScheduleDay, 'base' | 'givenAway' | 'pmGivenAway' | 'pickedUp' | 'working'>): string | null {
+  if (!day.working) return null
+  if (day.pmGivenAway) return PM_GIVEN_AWAY_HOURS
+  if (day.base && !day.givenAway) return typeHours('24-Hour')
+  if (day.pickedUp) return typeHours(day.pickedUp.shiftType)
+  return null
+}
+
+/**
+ * One line for what I'm doing that day, or null on a plain day off:
+ *   "You work 0800–0800"
+ *   "You work 0800–1600 · PM covered by Mike Lee"
+ *   "Off · 24-Hour covered by Mike Lee"
+ *   "You work 1600–0800 · covering Ana Cruz"
+ * `past` switches to "You worked …".
+ */
+export function dutySummary(
+  day: Pick<ScheduleDay, 'base' | 'givenAway' | 'pmGivenAway' | 'pickedUp' | 'working'>,
+  options: { past?: boolean } = {},
+): string | null {
+  const work = options.past ? 'You worked' : 'You work'
+  const hours = dutyHours(day)
+  if (day.pmGivenAway) {
+    return `${work} ${hours} · PM covered by ${day.pmGivenAway.byName || 'another member'}`
+  }
+  if (day.pickedUp && hours && !(day.base && !day.givenAway)) {
+    return `${work} ${hours} · covering ${day.pickedUp.forName || 'another member'}`
+  }
+  if (hours) return `${work} ${hours}`
+  if (day.givenAway) {
+    return `Off · ${day.givenAway.shiftType} covered by ${day.givenAway.byName || 'another member'}`
+  }
+  return null
 }

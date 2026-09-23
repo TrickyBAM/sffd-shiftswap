@@ -2,15 +2,17 @@ import Link from 'next/link'
 import { ArrowDownLeft, ArrowUpRight, Equal, Scale } from 'lucide-react'
 import { Avatar, Badge, Card, EmptyState } from '@/components/ui'
 import { cn } from '@/components/ui/cn'
+import { plural } from '@/lib/format'
 import { formatDate } from '@/lib/sffd/dates'
 import { SHIFT_TYPE_VALUES } from '@/lib/sffd/shift-types'
 import type { LedgerRow, MyStats, Shift } from '@/lib/types/database'
 import { TradeSection } from './TradeLinkCard'
 import {
+  BALANCE_TONE,
   balanceLines,
   balanceSummary,
+  balanceToneClass,
   latestTradeWith,
-  plural,
   signed,
   sortLedger,
   type BalanceDirection,
@@ -56,22 +58,19 @@ function Totals({ stats }: { stats: MyStats }) {
       </h2>
       <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
         <Stat label="Covered" value={String(stats.covered)} />
-        <Stat label="Given away" value={String(stats.given)} />
-        <Stat
-          label="Balance"
-          value={signed(balance)}
-          className={balance > 0 ? 'text-accent-green' : balance < 0 ? 'text-accent-orange' : undefined}
-        />
+        <Stat label="Given" value={String(stats.given)} />
+        <Stat label="Balance" value={signed(balance)} className={balanceToneClass(balance)} />
       </dl>
+      <p className="mt-1 text-center text-xs text-fg-dim">Balance = Covered − Given</p>
       <p className="mt-3 text-sm text-fg-muted">{balanceSummary(stats)}</p>
       <ul className="mt-3 space-y-1 border-t border-line pt-3 text-sm">
         {SHIFT_TYPE_VALUES.map((type) => {
           const t = stats.by_type?.[type] ?? { covered: 0, given: 0, balance: 0 }
           return (
-            <li key={type} className="flex items-center justify-between gap-3">
+            <li key={type} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
               <span className="text-fg">{type}</span>
               <span className="text-fg-muted">
-                covered {t.covered} · given {t.given} ·{' '}
+                Covered {t.covered} · Given {t.given} · Balance{' '}
                 <span className="font-semibold text-fg">{signed(t.covered - t.given)}</span>
               </span>
             </li>
@@ -98,8 +97,8 @@ const DIRECTION_ICON: Record<BalanceDirection, typeof Equal> = {
 }
 
 const DIRECTION_CLASS: Record<BalanceDirection, string> = {
-  owed: 'text-accent-green',
-  owe: 'text-accent-orange',
+  owed: BALANCE_TONE.ahead.text,
+  owe: BALANCE_TONE.behind.text,
   even: 'text-fg-dim',
 }
 
@@ -129,7 +128,8 @@ function PartnerCard({ row, latest }: { row: LedgerRow; latest: Shift | null }) 
             You covered {iCovered} · they covered {theyCovered}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {row.upcoming > 0 ? <Badge tone="blue">{plural(row.upcoming, 'upcoming trade')}</Badge> : null}
+            {/* my_ledger counts a SwapMatch (two dates) as one trade (TF-8). */}
+            {row.upcoming > 0 ? <Badge>{plural(row.upcoming, 'upcoming trade')}</Badge> : null}
             {latest ? (
               <Link
                 href={`/trades/${latest.id}`}

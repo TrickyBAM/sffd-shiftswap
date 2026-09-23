@@ -1,7 +1,7 @@
 import { ShieldCheck } from 'lucide-react'
 import { Badge, type BadgeTone } from '@/components/ui'
-import type { MemberStatus, Role } from '@/lib/types/database'
-import { statusLabel } from '../_lib/query'
+import type { MemberStatus, Profile, Role } from '@/lib/types/database'
+import { isRemoved, memberStateLabel } from '../_lib/query'
 
 const STATUS_TONES: Record<MemberStatus, BadgeTone> = {
   approved: 'green',
@@ -11,9 +11,9 @@ const STATUS_TONES: Record<MemberStatus, BadgeTone> = {
   onboarding: 'neutral',
 }
 
-/** "Active", "Waiting for approval", "Suspended", … as a coloured badge. */
-export function MemberStatusBadge({ status }: { status: MemberStatus }) {
-  return <Badge tone={STATUS_TONES[status]}>{statusLabel(status)}</Badge>
+/** "Active", "Waiting for approval", "Suspended", "Removed", … as a coloured badge. */
+export function MemberStatusBadge({ member }: { member: Pick<Profile, 'status' | 'removed_at'> }) {
+  return <Badge tone={isRemoved(member) ? 'gray' : STATUS_TONES[member.status]}>{memberStateLabel(member)}</Badge>
 }
 
 /** "Admin" badge; nothing for ordinary members. */

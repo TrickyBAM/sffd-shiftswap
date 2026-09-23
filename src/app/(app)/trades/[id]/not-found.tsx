@@ -1,13 +1,14 @@
 import Link from 'next/link'
 import { SearchX } from 'lucide-react'
-import AppHeader from '@/components/AppHeader'
 import { EmptyState, buttonClasses } from '@/components/ui'
+import { TradeHeader } from './_components/TradeHeader'
+import { TRADES_BACK } from './_lib/back-nav'
 
 /** Shown when /trades/<id> doesn't exist or isn't visible to this member. */
 export default function TradeNotFound() {
   return (
     <>
-      <AppHeader title="Not found" back={{ href: '/trades', label: 'Back to Trades' }} />
+      <TradeHeader title="Not found" fallback={TRADES_BACK} />
       <div className="mx-auto max-w-3xl px-4 pb-8 pt-4 md:px-6">
         <EmptyState
           icon={<SearchX size={28} />}

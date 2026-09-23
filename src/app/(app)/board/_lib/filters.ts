@@ -30,7 +30,10 @@ export interface BoardFilterState {
   station: number | null
   /** Rank shown when "Only shifts I can take" is off (null = all ranks). */
   rank: Rank | null
-  /** "Only shifts I can take": my rank, within each post's limit, not on days I work. */
+  /**
+   * "Only shifts I can take": my rank, within each post's limit, not on days I
+   * work, and for a SwapMatch at least one return date I could give.
+   */
   onlyEligible: boolean
 }
 
@@ -149,6 +152,25 @@ export function parseDateParam(value: string | null | undefined): Ymd | null {
   return isYmd(value) ? value : null
 }
 
+/**
+ * ?scope=all: open the Board on every location (e.g. from the calendar's
+ * "See N available", which counts shifts department-wide). Rank and "Only
+ * shifts I can take" keep their defaults.
+ */
+export function isScopeAllParam(value: string | null | undefined): boolean {
+  return value === 'all'
+}
+
+/** The filters the Board opens with: my defaults, or all locations for ?scope=all. */
+export function initialBoardFilters(defaults: BoardFilterState, scopeAll: boolean): BoardFilterState {
+  return scopeAll ? withAllLocations(defaults) : defaults
+}
+
+/** True when two filter states differ in the location cascade. */
+export function locationChanged(a: BoardFilterState, b: BoardFilterState): boolean {
+  return a.division !== b.division || a.battalion !== b.battalion || a.station !== b.station
+}
+
 /** Stable identity of a board query (filters + ?date), for caching and races. */
 export function boardQueryKey(filters: BoardFilterState, date: Ymd | null): string {
   return JSON.stringify([
@@ -164,7 +186,8 @@ export function boardQueryKey(filters: BoardFilterState, date: Ymd | null): stri
 /**
  * The listBoardShifts() filters for this state. With "Only shifts I can take"
  * on, the database applies rank/limit/own-post rules and `excludeDates`
- * removes the days I work or already cover.
+ * removes the days I work or already cover (SwapMatch return dates are
+ * checked on the client, see eligibility.ts).
  */
 export function toBoardApiFilters(
   filters: BoardFilterState,

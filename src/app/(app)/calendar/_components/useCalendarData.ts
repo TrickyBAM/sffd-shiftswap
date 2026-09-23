@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { countOpenShiftsByDate, getShiftsByIds, listMyShiftsInRange, type Sb } from '@/lib/api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { getShiftsByIds, listBoardShifts, listMyShiftsInRange, type BoardCursor, type Sb } from '@/lib/api'
 import { toAppError, type AppError } from '@/lib/errors'
 import { loadSnapshot, saveSnapshot } from '@/lib/offline-cache'
 import { addDays, type Ymd } from '@/lib/sffd/dates'
@@ -13,7 +13,10 @@ import {
   missingPartnerIds,
   monthKey,
   POST_WINDOW_DAYS,
+  toOpenShiftLite,
   visibleRange,
+  type DateRange,
+  type OpenShiftLite,
   type YearMonth,
 } from './calendar-model'
 
@@ -29,8 +32,12 @@ export interface CalendarViewer {
 export interface CalendarData {
   /** My open/covered shifts dated inside the visible 6-week grid. */
   monthShifts: Shift[]
-  /** Open shifts I could request, per date, inside the grid (today on). */
-  counts: Record<Ymd, number>
+  /**
+   * Open shifts inside the grid (today on) that pass the Board's "Only shifts
+   * I can take" query, in every location. takeableCounts() turns them into the
+   * blue counts.
+   */
+  open: OpenShiftLite[]
   /** My open/covered shifts from today through the next 180 days ("Coming up"). */
   upcomingShifts: Shift[]
   /** SwapMatch partner legs of the rows above that fall outside both ranges. */
@@ -59,22 +66,53 @@ export interface CalendarState {
   error: AppError | null
   /** A reload (retry or live update) is running. */
   reloading: boolean
-  /** Refetch now; months not on screen are dropped and reloaded when shown. */
+  /** Refetch everything now; months not on screen are dropped and reloaded when shown. */
   reload: () => void
+  /**
+   * Refetch only the open shifts behind the blue counts (someone else posted,
+   * took or withdrew a shift). Falls back to reload() while there is no live
+   * data for this month.
+   */
+  reloadOpen: () => void
 }
 
 const SNAPSHOT_KEY = 'calendar'
+
+/** Open shifts per page, and the most pages one load reads (about the old 1000-row cap). */
+const OPEN_PAGE_SIZE = 100
+const OPEN_MAX_PAGES = 10
 
 interface CalendarSnapshot extends CalendarData {
   month: string
 }
 
+/**
+ * The open shifts I could request dated in `range`: listBoardShifts() with
+ * `eligibleFor` (open, not started, my rank, not mine, within the post's
+ * accept limit) and no location filter — the Board opened with scope=all.
+ */
+async function fetchOpenShifts(sb: Sb, viewer: CalendarViewer, range: DateRange | null): Promise<OpenShiftLite[]> {
+  if (!range || !viewer.rank) return []
+  const out: OpenShiftLite[] = []
+  let after: BoardCursor | null = null
+  for (let i = 0; i < OPEN_MAX_PAGES; i += 1) {
+    const page = await listBoardShifts(
+      sb,
+      { from: range.from, to: range.to, eligibleFor: viewer },
+      { limit: OPEN_PAGE_SIZE, after },
+    )
+    for (const shift of page.items) out.push(toOpenShiftLite(shift))
+    if (!page.nextCursor) break
+    after = page.nextCursor
+  }
+  return out
+}
+
 async function fetchCalendar(sb: Sb, viewer: CalendarViewer, ym: YearMonth, today: Ymd): Promise<CalendarData> {
   const range = visibleRange(ym)
-  const ahead = futurePart(range, today)
-  const [monthShifts, counts, upcomingShifts] = await Promise.all([
+  const [monthShifts, open, upcomingShifts] = await Promise.all([
     listMyShiftsInRange(sb, { ...range, userId: viewer.id }),
-    ahead ? countOpenShiftsByDate(sb, { ...ahead, viewer }) : Promise.resolve<Record<Ymd, number>>({}),
+    fetchOpenShifts(sb, viewer, futurePart(range, today)),
     listMyShiftsInRange(sb, { from: today, to: addDays(today, POST_WINDOW_DAYS), userId: viewer.id }),
   ])
   // The other leg of a SwapMatch may fall outside both ranges; it only adds
@@ -89,7 +127,7 @@ async function fetchCalendar(sb: Sb, viewer: CalendarViewer, ym: YearMonth, toda
       related = []
     }
   }
-  return { monthShifts, counts, upcomingShifts, related }
+  return { monthShifts, open, upcomingShifts, related }
 }
 
 function isSnapshot(value: unknown): value is CalendarSnapshot {
@@ -100,8 +138,7 @@ function isSnapshot(value: unknown): value is CalendarSnapshot {
     Array.isArray(v.monthShifts) &&
     Array.isArray(v.upcomingShifts) &&
     Array.isArray(v.related) &&
-    typeof v.counts === 'object' &&
-    v.counts !== null
+    Array.isArray(v.open)
   )
 }
 
@@ -115,7 +152,7 @@ function entryFromSnapshot(snapshot: CalendarSnapshot, savedAt: string): Calenda
   return {
     data: {
       monthShifts: all,
-      counts: snapshot.counts,
+      open: snapshot.open,
       upcomingShifts: snapshot.upcomingShifts,
       related: snapshot.related,
     },
@@ -125,9 +162,9 @@ function entryFromSnapshot(snapshot: CalendarSnapshot, savedAt: string): Calenda
 }
 
 /**
- * Loads my shifts for the visible month grid, the open-shift counts and my
- * next 180 days. Months already seen show instantly and refresh in the
- * background. When a load fails the last snapshot is shown instead
+ * Loads my shifts for the visible month grid, the open shifts behind the blue
+ * counts and my next 180 days. Months already seen show instantly and refresh
+ * in the background. When a load fails the last snapshot is shown instead
  * (ARCHITECTURE §7.2 "Offline").
  */
 export function useCalendarData(viewer: CalendarViewer, ym: YearMonth, today: Ymd): CalendarState {
@@ -139,9 +176,13 @@ export function useCalendarData(viewer: CalendarViewer, ym: YearMonth, today: Ym
   const [lastKey, setLastKey] = useState<string | null>(null)
   const [token, setToken] = useState(0)
   const [reloading, setReloading] = useState(false)
+  // Bumped whenever a full load starts, so an open-shift refresh that started
+  // earlier can't overwrite the newer rows it brings.
+  const generation = useRef(0)
 
   useEffect(() => {
     let active = true
+    generation.current += 1
     const who: CalendarViewer = { id, rank, station, battalion, division }
     Promise.resolve()
       .then(() => fetchCalendar(createClient(), who, { year, month }, today))
@@ -190,6 +231,32 @@ export function useCalendarData(viewer: CalendarViewer, ym: YearMonth, today: Ym
   }, [key])
 
   const entry = entries[key] ?? null
+  const live = Boolean(entry && !entry.offline)
+
+  const reloadOpen = useCallback(() => {
+    if (!live) {
+      reload()
+      return
+    }
+    const started = generation.current
+    const who: CalendarViewer = { id, rank, station, battalion, division }
+    Promise.resolve()
+      .then(() => fetchOpenShifts(createClient(), who, futurePart(visibleRange({ year, month }), today)))
+      .then(
+        (open) => {
+          if (started !== generation.current) return
+          setEntries((prev) => {
+            const current = prev[key]
+            if (!current || current.offline) return prev
+            return { ...prev, [key]: { ...current, data: { ...current.data, open } } }
+          })
+        },
+        () => {
+          // Keep the counts on screen; the next live update or reload tries again.
+        },
+      )
+  }, [live, reload, key, year, month, today, id, rank, station, battalion, division])
+
   const failed = failure?.key === key ? failure.error : null
   return {
     entry,
@@ -198,5 +265,6 @@ export function useCalendarData(viewer: CalendarViewer, ym: YearMonth, today: Ym
     error: entry ? null : failed,
     reloading,
     reload,
+    reloadOpen,
   }
 }

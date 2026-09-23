@@ -3,9 +3,10 @@
 import { useRef, useState } from 'react'
 import { Check, Copy, MessageSquare } from 'lucide-react'
 import { Button, Dialog, buttonClasses, useToast } from '@/components/ui'
+import { FormAlert } from '@/components/forms/FormAlert'
+import { smsHref } from '@/lib/format'
 import type { Profile } from '@/lib/types/database'
 import { resetMemberPassword } from '../../actions'
-import { smsHref } from '../../_lib/format'
 import { firstNameOf, tempPasswordMessage } from '../_lib/password'
 
 export interface ResetPasswordDialogProps {
@@ -90,14 +91,7 @@ export function ResetPasswordDialog({ member, onClose, onReset }: ResetPasswordD
           </>
         }
       >
-        {phase.error ? (
-          <p
-            role="alert"
-            className="rounded-xl border border-sffd-red/30 bg-sffd-red/10 px-3 py-2 text-sm text-sffd-red-text"
-          >
-            {phase.error}
-          </p>
-        ) : null}
+        {phase.error ? <FormAlert>{phase.error}</FormAlert> : null}
       </Dialog>
     )
   }

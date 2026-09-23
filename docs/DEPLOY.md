@@ -8,7 +8,12 @@ alerts, how to roll back, and how to know when something is wrong.
 - **Database:** Supabase (Postgres, sign-in, realtime), added through the Vercel
   Marketplace. Resource `sffd-shiftswap-db`, region `sfo1`, free plan. Open it
   from Vercel ▸ sffd-shiftswap ▸ **Storage**.
-- **Code:** GitHub `TrickyBAM/sffd-shiftswap`. `main` is production.
+- **Code:** GitHub `TrickyBAM/sffd-shiftswap`. The v1 code is on the branch
+  `release/v1`. **The GitHub repository is not connected to the Vercel
+  project**, so pushing or merging a branch deploys nothing. Production is
+  deployed from an up-to-date local clone of `release/v1` with the Vercel CLI
+  (`vercel deploy --prod`). If you connect Git later (Vercel ▸ sffd-shiftswap ▸
+  **Settings ▸ Git**), choose the production branch there and update this guide.
 
 There is **one database**. Unless you set up separate database branches, preview
 deployments and local development use the same live data as production. Test
@@ -28,7 +33,7 @@ into the app at build time.
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | all | Set automatically by the Supabase integration |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or `NEXT_PUBLIC_SUPABASE_ANON_KEY`) | all | Set automatically. Either name works. |
-| `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`) | all (server only) | Set automatically. Never put it in a `NEXT_PUBLIC_` variable. |
+| `SUPABASE_SECRET_KEY` (or `SUPABASE_SERVICE_ROLE_KEY`) | all (server only) | Set automatically. Used for sign-up, admin password resets, closing a removed member's login and push delivery. Never put it in a `NEXT_PUBLIC_` variable. |
 | `POSTGRES_URL_NON_POOLING` | local scripts | Set automatically. Used by `npm run db:migrate` and `scripts/db/*`. |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | all | `npx web-push generate-vapid-keys`: the public key |
 | `VAPID_PRIVATE_KEY` | all (server only) | The private key from the same command |
@@ -67,30 +72,48 @@ Notes:
    deployed, so migrations must be **additive** (new tables, columns or
    functions; don't drop or rename something the running version uses). Remove
    old things in a later migration, after the new code is live.
-3. **Deploy a preview:** `vercel deploy` (or push the branch, when the Vercel ↔
-   GitHub connection is on). Vercel prints a preview URL. Preview URLs are behind
-   Vercel Authentication, so sign in to Vercel to open them.
+3. **Deploy a preview:** from the project folder on the branch you want to ship
+   (normally `release/v1`), run `vercel deploy`. Pushing to GitHub does not
+   create one, because Git isn't connected. Vercel prints a preview URL. Preview
+   URLs are behind Vercel Authentication, so sign in to Vercel to open them.
 4. **Check the preview** on a phone: sign in, open Calendar, Board and Trades,
    and try a post or request with a test account. Open `<preview-url>/api/keepalive`.
    It should say `"ok": true`.
 5. **Go to production**, in one of these ways:
-   - merge the branch into `main` (production deploys automatically when the Git
-     connection is on), or
    - promote the preview you checked: `vercel promote <preview-url>`, or
      **Promote** on it in the Vercel dashboard, or
-   - `vercel deploy --prod`.
+   - `vercel deploy --prod` from the same up-to-date `release/v1` folder.
+
+   Merging into `main` does not deploy anything while Git is disconnected.
+   Push the branch to GitHub anyway, so the code on GitHub matches what is live.
 6. **Check production:** <https://sffd-shiftswap.vercel.app/api/keepalive>
    says `"ok": true`, you can sign in, and a test alert arrives on your phone.
 
-Before a big release, also run the live smoke test:
-`node scripts/smoke/live-smoke.mjs`. It creates `e2e-…@example.com` members,
-runs the trade flows against the real database and deletes everything it made.
+Before a big release, also run the two live checks in `scripts/smoke` (both
+need `.env.local`; both create throwaway `e2e-…@example.com` members and delete
+everything they made at the end, unless you add `--keep`):
+
+- `node scripts/smoke/live-smoke.mjs` walks the trade flows against the real
+  database the way the app does: roster matching and approvals, posting, a
+  SwapMatch request and confirm, chat, balances, mutual cancel, admin void,
+  permissions, the push queue and the calendar feed.
+- `node scripts/smoke/ui-tour.mjs` opens every screen on a phone-sized browser
+  (Playwright, dark mode) as several test members, saves screenshots to
+  `.tmp-test/shots/` and lists console errors and failed requests. Add
+  `--base <url>` to tour a preview or a local server instead of production.
 
 ### First launch checklist (v1)
 
 - [ ] All environment variables in section 1 are set for Production and Preview.
-- [ ] `npm run db:migrate -- --status` shows every migration applied.
-- [ ] Production deployed from `main`, and `/api/keepalive` says `"ok": true`.
+- [ ] `npm run db:migrate -- --status` shows every migration applied
+      (`0001` to `0011` for v1).
+- [ ] Production deployed from `release/v1` with the Vercel CLI, and
+      `/api/keepalive` says `"ok": true`.
+- [ ] Supabase ▸ Authentication: **Allow new users to sign up** is off (the app's
+      own sign-up page keeps working, it creates accounts with the secret key) and
+      **Confirm email** stays on. Migration `0011` also refuses accounts created
+      any other way. To add someone by hand, use **Add user ▸ Create new user**
+      with **Auto Confirm User** ticked.
 - [ ] Brian signed up in the app, then `node scripts/db/make-admin.mjs <his email>`.
 - [ ] Roster uploaded (Admin ▸ Roster, see `docs/ADMIN-GUIDE.md`).
 - [ ] Push webhook enabled (section 3), and a test alert arrived on an iPhone

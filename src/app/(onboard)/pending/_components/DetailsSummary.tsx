@@ -1,4 +1,5 @@
 import { Card, CardHeader } from '@/components/ui/Card'
+import { tourLabel } from '@/lib/format'
 import { stationPathLabel } from '@/lib/sffd/stations'
 import type { Profile } from '@/lib/types/database'
 
@@ -12,7 +13,7 @@ export function DetailsSummary({ profile }: DetailsSummaryProps) {
     ['Name', profile.full_name || '—'],
     ['Rank', profile.rank ?? '—'],
     ['Station', profile.station !== null ? stationPathLabel(profile.station) : '—'],
-    ['Tour', profile.tour !== null ? `Tour ${profile.tour}` : 'No tour'],
+    ['Tour', tourLabel(profile.tour)],
     ['Phone', profile.phone ?? '—'],
     ['Employee ID', profile.employee_id ?? 'Not given'],
   ]

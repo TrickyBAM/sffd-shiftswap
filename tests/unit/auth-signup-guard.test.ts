@@ -5,8 +5,11 @@ import {
   MIN_FILL_MS,
   checkFormToken,
   clientIpFrom,
+  EMAIL_KEY_PREFIX,
   hashClientIp,
+  hashEmailKey,
   issueFormToken,
+  rateLimitNetwork,
 } from '@/app/(auth)/signup/_lib/guard'
 
 const SECRET = 'sb_secret_test_value'
@@ -58,5 +61,61 @@ describe('client IP key', () => {
     expect(key).toMatch(/^[0-9a-f]{64}$/)
     expect(key).not.toContain('203.0.113.9')
     expect(hashClientIp('203.0.113.9', 'other')).not.toBe(key)
+  })
+})
+
+describe('rate-limit network (SEC-5)', () => {
+  it('keeps IPv4 addresses as they are (dropping a port)', () => {
+    expect(rateLimitNetwork('203.0.113.9')).toBe('203.0.113.9')
+    expect(rateLimitNetwork(' 203.0.113.9:4431 ')).toBe('203.0.113.9')
+  })
+
+  it('counts IPv6 addresses by their /64 network', () => {
+    expect(rateLimitNetwork('2001:db8:aa:bb:1111:2222:3333:4444')).toBe('2001:db8:aa:bb::/64')
+    expect(rateLimitNetwork('2001:DB8:AA:BB::1')).toBe('2001:db8:aa:bb::/64')
+    expect(rateLimitNetwork('2001:0db8:00aa:00bb:0:0:0:ffff')).toBe('2001:db8:aa:bb::/64')
+    expect(rateLimitNetwork('[2001:db8:aa:bb::5]:443')).toBe('2001:db8:aa:bb::/64')
+    expect(rateLimitNetwork('fe80::1%eth0')).toBe('fe80:0:0:0::/64')
+    expect(rateLimitNetwork('2001:db8::1')).toBe('2001:db8:0:0::/64')
+    expect(rateLimitNetwork('::1')).toBe('0:0:0:0::/64')
+    expect(rateLimitNetwork('64:ff9b::192.0.2.1')).toBe('64:ff9b:0:0::/64')
+    // A different /64 is a different network.
+    expect(rateLimitNetwork('2001:db8:aa:bc::1')).not.toBe(rateLimitNetwork('2001:db8:aa:bb::1'))
+  })
+
+  it('treats an IPv4-mapped IPv6 address as the IPv4 address', () => {
+    expect(rateLimitNetwork('::ffff:203.0.113.9')).toBe('203.0.113.9')
+    expect(rateLimitNetwork('::ffff:cb00:7109')).toBe('203.0.113.9')
+  })
+
+  it('leaves anything else alone', () => {
+    expect(rateLimitNetwork('unknown')).toBe('unknown')
+    expect(rateLimitNetwork('1:2:3')).toBe('1:2:3')
+    expect(rateLimitNetwork('1::2::3')).toBe('1::2::3')
+  })
+
+  it('gives every address in one /64 the same key', () => {
+    const a = hashClientIp('2001:db8:aa:bb:1111:2222:3333:4444', SECRET)
+    expect(hashClientIp('2001:db8:aa:bb:9999::1', SECRET)).toBe(a)
+    expect(hashClientIp('2001:db8:aa:bc::1', SECRET)).not.toBe(a)
+    expect(hashClientIp('::ffff:203.0.113.9', SECRET)).toBe(hashClientIp('203.0.113.9', SECRET))
+  })
+})
+
+describe('email key (SEC-2)', () => {
+  it('is "email:" + a salted hash, never the address itself', () => {
+    const sha = (text: string) => createHash('sha256').update(text).digest('hex')
+    const key = hashEmailKey('pat@example.com', SECRET)
+    expect(key).toBe(`${EMAIL_KEY_PREFIX}${sha(`${sha(SECRET)}email:pat@example.com`)}`)
+    expect(key).toMatch(/^email:[0-9a-f]{64}$/)
+    expect(key.length).toBeLessThanOrEqual(128)
+    expect(key).not.toContain('pat')
+    expect(hashEmailKey('pat@example.com', 'other')).not.toBe(key)
+  })
+
+  it('ignores case and surrounding spaces, and never matches an IP key', () => {
+    expect(hashEmailKey('  Pat@Example.COM ', SECRET)).toBe(hashEmailKey('pat@example.com', SECRET))
+    expect(hashEmailKey('pat@example.com', SECRET)).not.toBe(hashEmailKey('pat2@example.com', SECRET))
+    expect(hashEmailKey('203.0.113.9', SECRET)).not.toBe(hashClientIp('203.0.113.9', SECRET))
   })
 })

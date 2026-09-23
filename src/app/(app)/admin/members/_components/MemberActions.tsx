@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Ban, Check, KeyRound, Pencil, RotateCcw, ShieldCheck, ShieldOff, X } from 'lucide-react'
+import { Ban, Check, KeyRound, Pencil, RotateCcw, ShieldCheck, ShieldOff, UserX, X } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { setMemberRole, setMemberStatus, type PendingApproval } from '@/lib/api'
 import { createClient } from '@/lib/supabase/client'
@@ -9,9 +9,21 @@ import type { Profile } from '@/lib/types/database'
 import { ApproveSheet } from '../../_components/ApproveSheet'
 import { ReasonConfirmDialog } from '../../_components/ReasonConfirmDialog'
 import { RejectDialog } from '../../_components/RejectDialog'
+import { isRemoved } from '../_lib/query'
+import { RemovedAccount } from './RemovedAccount'
+import { RemoveMemberDialog } from './RemoveMemberDialog'
 import { ResetPasswordDialog } from './ResetPasswordDialog'
 
-type Open = 'suspend' | 'reactivate' | 'make-admin' | 'remove-admin' | 'reset' | 'approve' | 'reject' | null
+type Open =
+  | 'suspend'
+  | 'reactivate'
+  | 'make-admin'
+  | 'remove-admin'
+  | 'reset'
+  | 'approve'
+  | 'reject'
+  | 'remove'
+  | null
 
 export interface MemberActionsProps {
   member: Profile
@@ -26,13 +38,19 @@ function asApproval(member: Profile): PendingApproval {
   return { member, rosterNote: null, rosterId: null, attempts: 0, autoApproveBlocked: false, submittedAt: null }
 }
 
-/** Edit, approve/reject, suspend/reactivate, admin access and password reset for one member. */
+/**
+ * Edit, approve/reject, suspend/reactivate, admin access, password reset and
+ * account removal for one member. A removed account only shows what happened
+ * (and Finish removal if its login step didn't complete).
+ */
 export function MemberActions({ member, myId, onEdit, onChanged }: MemberActionsProps) {
   const [open, setOpen] = useState<Open>(null)
   const close = () => setOpen(null)
   const name = member.full_name || member.email || 'this member'
   const isMe = member.id === myId
   const setUp = member.status !== 'onboarding' && member.rank !== null && member.station !== null
+
+  if (isRemoved(member)) return <RemovedAccount member={member} onChanged={onChanged} />
 
   return (
     <div className="space-y-3">
@@ -93,6 +111,12 @@ export function MemberActions({ member, myId, onEdit, onChanged }: MemberActions
         {!isMe ? (
           <Button variant="secondary" icon={<KeyRound size={18} aria-hidden="true" />} onClick={() => setOpen('reset')}>
             Reset password
+          </Button>
+        ) : null}
+
+        {!isMe ? (
+          <Button variant="danger" icon={<UserX size={18} aria-hidden="true" />} onClick={() => setOpen('remove')}>
+            Remove member
           </Button>
         ) : null}
       </div>
@@ -189,6 +213,8 @@ export function MemberActions({ member, myId, onEdit, onChanged }: MemberActions
       ) : null}
 
       {open === 'reset' ? <ResetPasswordDialog member={member} onClose={close} onReset={onChanged} /> : null}
+
+      {open === 'remove' ? <RemoveMemberDialog member={member} onClose={close} onRemoved={onChanged} /> : null}
     </div>
   )
 }

@@ -6,7 +6,6 @@ import {
   fullTimestamp,
   markReadLocally,
   mergeNewestPage,
-  relativeTime,
   safeAlertUrl,
 } from '@/app/(app)/alerts/_components/alerts-model'
 
@@ -29,29 +28,9 @@ function alert(n: number, createdAt: string, overrides: Partial<Notification> = 
 
 const cursorOf = (n: Notification) => ({ created_at: n.created_at, id: n.id })
 
-describe('relativeTime', () => {
-  // 2026-09-23 12:00 Pacific (PDT)
-  const now = Date.parse('2026-09-23T19:00:00Z')
-
-  it('uses short relative wording', () => {
-    expect(relativeTime('2026-09-23T18:59:30Z', now)).toBe('Just now')
-    expect(relativeTime('2026-09-23T18:55:00Z', now)).toBe('5 min ago')
-    expect(relativeTime('2026-09-23T16:00:00Z', now)).toBe('3 hr ago')
-  })
-
-  it('counts calendar days in Pacific time', () => {
-    // 2026-09-22 08:00 Pacific
-    expect(relativeTime('2026-09-22T15:00:00Z', now)).toBe('Yesterday')
-    expect(relativeTime('2026-09-19T19:00:00Z', now)).toBe('4 days ago')
-    expect(relativeTime('2026-09-02T19:00:00Z', now)).toBe('Sep 2')
-    expect(relativeTime('2025-12-30T19:00:00Z', now)).toBe('Dec 30, 2025')
-  })
-
-  it('never shows negative times or garbage', () => {
-    expect(relativeTime('2026-09-23T19:05:00Z', now)).toBe('Just now')
-    expect(relativeTime('not a date', now)).toBe('')
-  })
-
+// Relative times ("5 min ago") use the shared relativeTime() in
+// src/lib/format.ts, tested in tests/unit/lib-format.test.ts.
+describe('fullTimestamp', () => {
   it('formats a full timestamp in Pacific time', () => {
     expect(fullTimestamp('2026-09-23T22:45:00Z')).toBe('Sep 23, 2026, 3:45 PM')
   })

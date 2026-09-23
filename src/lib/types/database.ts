@@ -178,6 +178,12 @@ export interface Profile {
   approved_at: Timestamp | null
   /** Null when auto-approved by roster match. */
   approved_by: Uuid | null
+  /**
+   * When an admin removed the member (admin_remove_member, migration 0011);
+   * null for everyone else. Optional so rows from a database that doesn't have
+   * the column yet still type-check: treat undefined as null.
+   */
+  removed_at?: Timestamp | null
   created_at: Timestamp
   updated_at: Timestamp
 }
@@ -387,7 +393,10 @@ export interface LedgerRow {
   /** I covered − they covered (positive ⇒ they owe me). */
   net_24: number
   net_pm: number
-  /** Covered shifts with this partner that haven't started. */
+  /**
+   * Trades with this partner that haven't started (migration 0011): a
+   * SwapMatch counts once, not once per leg.
+   */
   upcoming: number
   last_date: Ymd | null
 }
@@ -397,9 +406,15 @@ export interface ScheduleRow {
   date: Ymd
   /** One of my tour days. */
   base: boolean
+  /** I gave away my shift this day (a 24-Hour or only the PM). */
   given_away: boolean
+  /**
+   * What I gave away is only the PM (1600–0800): I still work 0800–1600, so
+   * `working` stays true. Only a 24-Hour give-away frees the day.
+   */
+  pm_given_away: boolean
   picked_up: boolean
-  /** (base and not given_away) or picked_up */
+  /** (base and not a 24-Hour give-away) or pm_given_away or picked_up */
   working: boolean
   open_post_id: Uuid | null
   given_shift_id: Uuid | null
@@ -427,6 +442,11 @@ export interface MemberCard {
   trust_score: number
   covered: number
   given: number
+}
+
+/** One element of member_cards(): a member_card() plus whose it is. */
+export interface MemberCardEntry extends MemberCard {
+  user_id: Uuid
 }
 
 export interface EligibilityReason {
@@ -477,11 +497,27 @@ export interface ImportRosterResult {
   errors: { row: number; message: string }[]
 }
 
+/** admin_remove_member() — what the removal took off the board. */
+export interface RemoveMemberResult {
+  /** Their open posts that were taken down. */
+  posts_cancelled: number
+  /** Pending requests on or by them that were closed. */
+  requests_closed: number
+  /** Confirmed, not-started trades they are in (kept; void them if they won't happen). */
+  upcoming_trades: number
+}
+
 /** admin_overview() */
 export interface AdminOverview {
   pending_members: number
   approved_members: number
+  /** Suspended and not removed. */
   suspended_members: number
+  /**
+   * Accounts an admin removed (admin_remove_member, migration 0011). Optional
+   * while a database without 0011 may answer.
+   */
+  removed_members?: number
   /** Open posts that haven't started. */
   open_shifts: number
   /** Original legs confirmed since the 1st of this month (Pacific), still covered. */
@@ -544,6 +580,7 @@ export interface RpcFunctions {
   my_schedule: { args: { p_from: Ymd; p_to: Ymd }; returns: ScheduleRow[] }
   get_trade_contact: { args: { p_shift_id: Uuid }; returns: TradeContact[] }
   member_card: { args: { p_user_id: Uuid }; returns: MemberCard }
+  member_cards: { args: { p_user_ids: Uuid[] }; returns: MemberCardEntry[] }
 
   // Shifts & trades
   post_shift: {
@@ -599,6 +636,7 @@ export interface RpcFunctions {
     returns: null
   }
   admin_mark_must_change_password: { args: { p_user_id: Uuid }; returns: null }
+  admin_remove_member: { args: { p_user_id: Uuid; p_reason: string | null }; returns: RemoveMemberResult }
   admin_import_roster: { args: { p_rows: RosterImportRow[]; p_replace: boolean }; returns: ImportRosterResult }
   admin_delete_roster_entry: { args: { p_id: Uuid }; returns: null }
   admin_cancel_post: { args: { p_shift_id: Uuid; p_reason: string | null }; returns: null }

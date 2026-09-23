@@ -1,15 +1,11 @@
 // Display helpers shared by the Board and the trade detail page. Pure
 // functions; dates follow ARCHITECTURE §3 (calendar days are 'YYYY-MM-DD'
-// strings in Pacific time, never parsed with new Date()).
+// strings in Pacific time, never parsed with new Date()). Relative times,
+// counts, phone links and accept-limit labels come from src/lib/format.ts.
 
 import { addDays, formatDate, todayPT, type Ymd } from '@/lib/sffd/dates'
 import { SHIFT_TYPES, isShiftType } from '@/lib/sffd/shift-types'
-import { battalionLabel, divisionLabel, stationLabel } from '@/lib/sffd/stations'
-import type { AcceptLimit } from '@/lib/types/database'
-
-const MINUTE = 60_000
-const HOUR = 60 * MINUTE
-const DAY = 24 * HOUR
+import { battalionLabel, stationLabel } from '@/lib/sffd/stations'
 
 /** The current time in ms. Kept out of components so renders stay pure. */
 export function currentTime(): number {
@@ -21,22 +17,6 @@ export function ymdOfInstant(iso: string | null | undefined): Ymd | null {
   if (!iso) return null
   const ms = Date.parse(iso)
   return Number.isNaN(ms) ? null : todayPT(new Date(ms))
-}
-
-/** "just now", "5 min ago", "3 hr ago", "2 days ago", or "on Sep 3". */
-export function timeAgo(iso: string | null | undefined, nowMs: number): string {
-  if (!iso) return ''
-  const at = Date.parse(iso)
-  if (Number.isNaN(at)) return ''
-  const diff = Math.max(0, nowMs - at)
-  if (diff < MINUTE) return 'just now'
-  if (diff < HOUR) return `${Math.floor(diff / MINUTE)} min ago`
-  if (diff < DAY) return `${Math.floor(diff / HOUR)} hr ago`
-  if (diff < 7 * DAY) {
-    const days = Math.floor(diff / DAY)
-    return days === 1 ? 'yesterday' : `${days} days ago`
-  }
-  return `on ${formatDate(todayPT(new Date(at)), 'short')}`
 }
 
 /** "Tue, Oct 14" with " · Today" / " · Tomorrow" when it applies. */
@@ -64,25 +44,6 @@ export function shiftTimesLabel(shiftType: string): string {
 /** "Station 19 · Battalion 9". */
 export function stationBattalionLabel(shift: { station: number; battalion: number }): string {
   return `${stationLabel(shift.station)} · ${battalionLabel(shift.battalion)}`
-}
-
-/** Who may request, relative to the shift's station: "Battalion 9 only", or null for anyone. */
-export function acceptLimitLabel(shift: {
-  accept_limit: AcceptLimit | string
-  station: number
-  battalion: number
-  division: number
-}): string | null {
-  switch (shift.accept_limit) {
-    case 'station':
-      return `${stationLabel(shift.station)} only`
-    case 'battalion':
-      return `${battalionLabel(shift.battalion)} only`
-    case 'division':
-      return `${divisionLabel(shift.division)} only`
-    default:
-      return null
-  }
 }
 
 /** "Oct 16, Oct 20 and Oct 22". */
@@ -118,17 +79,4 @@ export function uniqueById<T extends { id: string }>(rows: readonly T[]): T[] {
     out.push(row)
   }
   return out
-}
-
-/** "1 shift" / "3 shifts". */
-export function plural(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`
-}
-
-/** Digits and a leading + only, for tel:/sms: links. Empty when there's nothing dialable. */
-export function dialable(phone: string | null | undefined): string {
-  const text = (phone ?? '').trim()
-  const digits = text.replace(/[^\d]/g, '')
-  if (digits.length < 7) return ''
-  return text.startsWith('+') ? `+${digits}` : digits
 }

@@ -6,23 +6,17 @@ import { Hourglass } from 'lucide-react'
 import { Badge, buttonClasses, ConfirmDialog, EmptyState, useToast } from '@/components/ui'
 import { withdrawRequest, type RequestWithShift } from '@/lib/api'
 import { errorMessage } from '@/lib/errors'
+import { acceptLimitLabel, plural } from '@/lib/format'
 import { formatDate } from '@/lib/sffd/dates'
 import { createClient } from '@/lib/supabase/client'
 import type { Shift } from '@/lib/types/database'
 import { TradeLinkCard, TradeSection } from './TradeLinkCard'
-import {
-  acceptLimitLabel,
-  chooseCta,
-  namesPreview,
-  partnerOf,
-  plural,
-  shiftLine,
-  type IncomingGroup,
-} from './trades-model'
+import { chooseCta, myReturnDateLine, namesPreview, partnerOf, shiftLine, type IncomingGroup } from './trades-model'
 
 export interface PendingTabProps {
   me: string
   groups: IncomingGroup[]
+  /** Cancel requests I can still answer (expired ones show on Confirmed). */
   cancelRequests: Shift[]
   myRequests: RequestWithShift[]
   openPosts: Shift[]
@@ -110,7 +104,7 @@ function IncomingCard({ group }: { group: IncomingGroup }) {
     <TradeLinkCard
       shiftId={shift.id}
       date={shift.date}
-      dateTone="red"
+      dateTone="orange"
       title={chooseCta(requests.length)}
       subtitle={`Your ${shift.shift_type} on ${formatDate(shift.date, 'weekday')} · from ${names}`}
       cta={
@@ -148,11 +142,12 @@ function CancelRequestCard({ shift, me }: { shift: Shift; me: string }) {
 }
 
 function OpenPostCard({ shift, requests }: { shift: Shift; requests: number }) {
-  const limit = acceptLimitLabel(shift.accept_limit)
+  const limit = acceptLimitLabel(shift.accept_limit, shift.station)
   return (
     <TradeLinkCard
       shiftId={shift.id}
       date={shift.date}
+      dateTone="orange"
       title={requests > 0 ? chooseCta(requests) : 'No requests yet'}
       subtitle={shiftLine(shift)}
     >
@@ -198,9 +193,17 @@ function MyRequestCard({
         title={`${shift.poster_name}'s ${shift.shift_type}`}
         subtitle={shiftLine(shift)}
       >
-        <Badge tone="blue">Waiting for {shift.poster_name}</Badge>
+        <Badge tone="blue" className="whitespace-normal">
+          Waiting for {shift.poster_name}
+        </Badge>
         {request.return_date ? (
-          <Badge tone="purple">You&apos;d work {formatDate(request.return_date, 'weekday')} in return</Badge>
+          <>
+            <Badge tone="purple">SwapMatch</Badge>
+            {/* The poster works MY shift on the return date (UX-01). */}
+            <span className="w-full text-sm text-fg-muted">
+              {myReturnDateLine(shift.poster_name, request.return_date)}
+            </span>
+          </>
         ) : null}
       </TradeLinkCard>
       <div className="flex justify-end border-t border-line px-3 py-2">
@@ -218,7 +221,7 @@ function MyRequestCard({
         onClose={() => setConfirming(false)}
         onConfirm={withdraw}
         title="Withdraw your request?"
-        description={`${shift.poster_name} won't be able to pick you for ${formatDate(shift.date, 'weekday')}. You can ask again later if it's still open.`}
+        description={`${shift.poster_name} won't be able to pick you for ${formatDate(shift.date, 'weekday')}. If you ask again later, anyone who asked before then will be ahead of you.`}
         confirmLabel="Withdraw"
         cancelLabel="Keep request"
         tone="danger"

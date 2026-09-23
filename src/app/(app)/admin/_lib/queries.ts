@@ -1,7 +1,10 @@
-// Small admin-only reads that the shared API layer (src/lib/api) doesn't cover.
-// They rely on the admin RLS policies (admins can read every profile).
+// Admin reads built on src/lib/api, plus the one small read it doesn't cover:
+// member names by id for any status (member_cards() only returns approved
+// members, but the activity log, roster claims and approvals also name
+// pending, turned-down and removed members). Relies on the admin RLS policies
+// (admins can read every profile).
 
-import { isUuid, type Sb } from '@/lib/api'
+import { isUuid, listMembers, type Sb } from '@/lib/api'
 import { runList } from '@/lib/api/core'
 import type { Profile } from '@/lib/types/database'
 
@@ -29,21 +32,18 @@ export interface RecentMember {
 }
 
 /**
- * Members approved in the last `days` days, newest approval first. A member
- * with `approved_by` null was auto-approved by a roster match.
+ * Active members approved in the last `days` days, newest approval first
+ * (listMembers with joinedWithinDays). A member with `approved_by` null was
+ * auto-approved by a roster match.
  */
 export async function listRecentlyJoined(sb: Sb, days = 14, now: Date = new Date()): Promise<RecentMember[]> {
-  const since = new Date(now.getTime() - days * 86_400_000).toISOString()
-  const members = await runList<Profile>(
-    sb
-      .from('profiles')
-      .select('*')
-      .eq('status', 'approved')
-      .gte('approved_at', since)
-      .order('approved_at', { ascending: false })
-      .order('id')
-      .limit(100),
-  )
+  const { items: members } = await listMembers(sb, {
+    statuses: ['approved'],
+    joinedWithinDays: days,
+    order: 'approved',
+    limit: 100,
+    now,
+  })
   const names = await fetchMemberNames(
     sb,
     members.map((m) => m.approved_by),

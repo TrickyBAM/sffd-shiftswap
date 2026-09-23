@@ -64,6 +64,7 @@ describe('admin guard', () => {
     ['admin_cancel_post', { p_shift_id: randomUUID(), p_reason: null }],
     ['admin_void_trade', { p_shift_id: randomUUID(), p_reason: null }],
     ['admin_overview', {}],
+    ['admin_remove_member', { p_user_id: randomUUID(), p_reason: null }],
   ]
 
   it('refuses every admin RPC to a regular member (NOT_ADMIN)', async () => {
@@ -486,7 +487,8 @@ describe('admin_overview', () => {
       `select
          (select count(*)::int from public.profiles where status = 'pending') as pending_members,
          (select count(*)::int from public.profiles where status = 'approved') as approved_members,
-         (select count(*)::int from public.profiles where status = 'suspended') as suspended_members,
+         (select count(*)::int from public.profiles where status = 'suspended' and removed_at is null) as suspended_members,
+         (select count(*)::int from public.profiles where removed_at is not null) as removed_members,
          (select count(*)::int from public.shifts where status = 'open' and starts_at > now()) as open_shifts,
          (select count(*)::int from public.shifts where status = 'covered' and return_leg_of is null
              and confirmed_at >= date_trunc('month', public.today_pt())::date::timestamp at time zone 'America/Los_Angeles') as trades_this_month,

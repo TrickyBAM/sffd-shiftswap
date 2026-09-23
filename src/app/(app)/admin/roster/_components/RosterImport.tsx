@@ -2,13 +2,14 @@
 
 import { useMemo, useState, type ChangeEvent } from 'react'
 import { Download, FileUp, Upload } from 'lucide-react'
+import { FormAlert } from '@/components/forms/FormAlert'
 import { Button, Card, ConfirmDialog, Field, Textarea, buttonClasses, cn, useToast } from '@/components/ui'
 import { importRoster } from '@/lib/api'
 import { toAppError } from '@/lib/errors'
+import { plural } from '@/lib/format'
 import { createClient } from '@/lib/supabase/client'
 import type { ImportRosterResult } from '@/lib/types/database'
 import { downloadTextFile, rosterTemplateCsv } from '../../_lib/csv'
-import { plural } from '../../_lib/format'
 import { buildRosterPreview } from '../_lib/preview'
 import { ImportPreview } from './ImportPreview'
 import { ImportResult } from './ImportResult'
@@ -174,9 +175,7 @@ export function RosterImport({ onImported }: RosterImportProps) {
       </Field>
 
       {preview.fatal ? (
-        <p role="alert" className="rounded-xl border border-sffd-red/30 bg-sffd-red/10 px-3 py-2 text-sm text-sffd-red-text">
-          {preview.fatal}
-        </p>
+        <FormAlert>{preview.fatal}</FormAlert>
       ) : text.trim() ? (
         <ImportPreview preview={preview} />
       ) : null}
@@ -200,11 +199,7 @@ export function RosterImport({ onImported }: RosterImportProps) {
             </span>
           </label>
 
-          {importError ? (
-            <p role="alert" className="text-sm text-sffd-red-text">
-              {importError}
-            </p>
-          ) : null}
+          {importError ? <FormAlert>{importError}</FormAlert> : null}
 
           <Button
             fullWidth

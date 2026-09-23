@@ -2,7 +2,8 @@
 
 import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { Card } from '@/components/ui'
-import { plural, stationText, tourText } from '../../_lib/format'
+import { plural, tourLabel } from '@/lib/format'
+import { stationText } from '../../_lib/format'
 import { rosterRowName, type RosterPreview } from '../_lib/preview'
 
 /** How many good rows the preview table shows. */
@@ -68,7 +69,7 @@ export function ImportPreview({ preview }: { preview: RosterPreview }) {
                           {typeof row.station === 'number' ? stationText(row.station) : '—'}
                         </td>
                         <td className="px-3 py-2 text-fg-muted">
-                          {typeof row.tour === 'number' ? tourText(row.tour) : '—'}
+                          {typeof row.tour === 'number' ? tourLabel(row.tour) : '—'}
                         </td>
                         <td className="px-3 py-2 text-fg-muted">{row.email ?? '—'}</td>
                         <td className="px-3 py-2 text-fg-muted">{row.phone ?? '—'}</td>

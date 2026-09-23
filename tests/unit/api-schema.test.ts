@@ -32,9 +32,17 @@ function tableSql(name: string): string {
   return m[1]
 }
 
-/** Column names of a table (lines indented exactly two spaces, constraints skipped). */
+/**
+ * Column names of a table: the `create table` body (lines indented exactly two
+ * spaces, constraints skipped) plus columns later migrations add with
+ * `alter table public.<name> add column [if not exists] <column>`.
+ */
 function sqlColumns(name: string): string[] {
-  return [...tableSql(name).matchAll(/^ {2}([a-z_][a-z0-9_]*) /gm)].map((m) => m[1]).filter((c) => c !== 'constraint')
+  const created = [...tableSql(name).matchAll(/^ {2}([a-z_][a-z0-9_]*) /gm)].map((m) => m[1]).filter((c) => c !== 'constraint')
+  const added = [...SQL.matchAll(new RegExp(`alter table (?:only )?public\\.${name}\\b([^;]*);`, 'g'))].flatMap((m) =>
+    [...m[1].matchAll(/add column (?:if not exists )?([a-z_][a-z0-9_]*)/g)].map((x) => x[1]),
+  )
+  return [...new Set([...created, ...added])]
 }
 
 /** Property names of `export interface <name> { … }` in database.ts. */

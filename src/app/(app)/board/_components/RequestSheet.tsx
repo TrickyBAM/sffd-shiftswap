@@ -18,22 +18,18 @@ import {
   useToast,
 } from '@/components/ui'
 import { useProfile } from '@/components/providers/ProfileProvider'
-import {
-  getShift,
-  getShiftEligibility,
-  listRequestsForShift,
-  requestShift,
-  withdrawRequest,
-} from '@/lib/api'
+import { getShift, getShiftEligibility, listRequestsForShift, requestShift } from '@/lib/api'
 import { toAppError, type AppError } from '@/lib/errors'
+import { acceptLimitLabel, relativeTime } from '@/lib/format'
 import { formatDate, type Ymd } from '@/lib/sffd/dates'
 import { stationPathLabel } from '@/lib/sffd/stations'
 import { createClient } from '@/lib/supabase/client'
 import type { Eligibility, Shift, ShiftRequest } from '@/lib/types/database'
 import { isStaleDataError, toastActionError } from '../_lib/errors'
-import { acceptLimitLabel, currentTime, shiftTimesLabel, timeAgo } from '../_lib/format'
+import { currentTime, shiftTimesLabel } from '../_lib/format'
 import { EligibilityReasons } from './EligibilityReasons'
 import { Notice } from './Notice'
+import { WithdrawRequestDialog } from './WithdrawRequestDialog'
 
 export const REQUEST_MESSAGE_MAX = 300
 
@@ -60,7 +56,8 @@ type LoadState = { status: 'loading' } | { status: 'ready'; data: SheetData } | 
 /**
  * Bottom sheet to request a shift: details, eligibility (with the reasons in
  * plain English when I can't), SwapMatch return date, optional message, and my
- * pending request with Withdraw. Mount it only while open (key it by shift id).
+ * pending request with Withdraw (asks first). Mount it only while open (key it
+ * by shift id).
  */
 export function RequestSheet({ shiftId, initialShift = null, onClose, onChanged, showDetailsLink = true }: RequestSheetProps) {
   const { profile } = useProfile()
@@ -73,7 +70,8 @@ export function RequestSheet({ shiftId, initialShift = null, onClose, onChanged,
   const [returnDate, setReturnDate] = useState<Ymd | null>(null)
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [withdrawing, setWithdrawing] = useState(false)
+  // The request the "Withdraw your request?" dialog is asking about.
+  const [withdrawing, setWithdrawing] = useState<ShiftRequest | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -111,7 +109,7 @@ export function RequestSheet({ shiftId, initialShift = null, onClose, onChanged,
     data?.shift && eligibility?.eligible && !pending && !isMine && (!isSwap || chosenReturn),
   )
   const posterName = shift?.poster_name ?? 'the poster'
-  const busy = submitting || withdrawing
+  const busy = submitting
 
   async function submit() {
     if (!canRequest || submitting) return
@@ -133,20 +131,9 @@ export function RequestSheet({ shiftId, initialShift = null, onClose, onChanged,
     }
   }
 
-  async function withdraw(request: ShiftRequest) {
-    if (withdrawing) return
-    setWithdrawing(true)
-    try {
-      await withdrawRequest(createClient(), request.id)
-      toast.success('Request withdrawn', `${posterName} has been told.`)
-      onChanged?.()
-      reload()
-    } catch (err) {
-      toastActionError(toast, err, "Couldn't withdraw your request")
-      if (isStaleDataError(err)) reload()
-    } finally {
-      setWithdrawing(false)
-    }
+  function afterWithdraw() {
+    onChanged?.()
+    reload()
   }
 
   const detailsLink =
@@ -164,7 +151,7 @@ export function RequestSheet({ shiftId, initialShift = null, onClose, onChanged,
   if (data?.shift && !isMine && pending) {
     footer = (
       <div className="space-y-2">
-        <Button variant="secondary" fullWidth loading={withdrawing} onClick={() => withdraw(pending)}>
+        <Button variant="secondary" fullWidth onClick={() => setWithdrawing(pending)}>
           Withdraw my request
         </Button>
         {detailsLink}
@@ -185,87 +172,96 @@ export function RequestSheet({ shiftId, initialShift = null, onClose, onChanged,
   }
 
   return (
-    <Sheet
-      open
-      onClose={busy ? () => {} : onClose}
-      closeOnOverlay={!busy}
-      closeOnEscape={!busy}
-      title={isMine ? 'Your post' : 'Request this shift'}
-      description={shift ? formatDate(shift.date, 'long') : undefined}
-      footer={footer}
-    >
-      {shift ? <ShiftDetails shift={shift} nowMs={nowMs} /> : null}
+    <>
+      <Sheet
+        open
+        onClose={busy ? () => {} : onClose}
+        closeOnOverlay={!busy}
+        closeOnEscape={!busy}
+        title={isMine ? 'Your post' : 'Request this shift'}
+        description={shift ? formatDate(shift.date, 'long') : undefined}
+        footer={footer}
+      >
+        {shift ? <ShiftDetails shift={shift} nowMs={nowMs} /> : null}
 
-      <div className="mt-4 space-y-4">
-        {load.status === 'loading' ? (
-          <div role="status" aria-live="polite" className="space-y-2">
-            <span className="sr-only">Checking if you can take this shift…</span>
-            {!shift ? <Skeleton className="h-24 w-full" /> : null}
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-12 w-full" />
-          </div>
-        ) : null}
+        <div className="mt-4 space-y-4">
+          {load.status === 'loading' ? (
+            <div role="status" aria-live="polite" className="space-y-2">
+              <span className="sr-only">Checking if you can take this shift…</span>
+              {!shift ? <Skeleton className="h-24 w-full" /> : null}
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-12 w-full" />
+            </div>
+          ) : null}
 
-        {load.status === 'error' ? (
-          <ErrorState title="Couldn't check this shift" message={load.error.message} onRetry={reload} />
-        ) : null}
+          {load.status === 'error' ? (
+            <ErrorState title="Couldn't check this shift" message={load.error.message} onRetry={reload} />
+          ) : null}
 
-        {data && !data.shift ? (
-          <Notice tone="warning" title="This shift isn't available anymore">
-            The member may have cancelled it, or someone else took it.
-          </Notice>
-        ) : null}
+          {data && !data.shift ? (
+            <Notice tone="warning" title="This shift isn't available anymore">
+              The member may have cancelled it, or someone else took it.
+            </Notice>
+          ) : null}
 
-        {data?.shift && isMine ? (
-          <Notice tone="info" title="This is your post">
-            Requests from other members show up on the details page, where you can confirm one.
-          </Notice>
-        ) : null}
+          {data?.shift && isMine ? (
+            <Notice tone="info" title="This is your post">
+              Requests from other members show up on the details page, where you can confirm one.
+            </Notice>
+          ) : null}
 
-        {data?.shift && !isMine && pending ? (
-          <PendingRequest request={pending} posterName={posterName} nowMs={nowMs} />
-        ) : null}
+          {data?.shift && !isMine && pending ? (
+            <PendingRequest request={pending} posterName={posterName} nowMs={nowMs} />
+          ) : null}
 
-        {data?.shift && !isMine && !pending && eligibility && !eligibility.eligible ? (
-          <EligibilityReasons reasons={eligibility.reasons} />
-        ) : null}
+          {data?.shift && !isMine && !pending && eligibility && !eligibility.eligible ? (
+            <EligibilityReasons reasons={eligibility.reasons} />
+          ) : null}
 
-        {data?.shift && !isMine && !pending && eligibility?.eligible ? (
-          <>
-            {isSwap ? (
-              <ReturnDatePicker
-                offered={data.shift.return_dates}
-                valid={validReturns}
-                value={chosenReturn}
-                onChange={setReturnDate}
-                posterName={posterName}
-                disabled={submitting}
-              />
-            ) : null}
-            <Field
-              label={`Message to ${posterName} (optional)`}
-              hint="They'll see it with your request."
-            >
-              <Textarea
-                rows={3}
-                maxLength={REQUEST_MESSAGE_MAX}
-                showCount
-                value={message}
-                disabled={submitting}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="e.g. Happy to swap — text me if you need anything."
-              />
-            </Field>
-          </>
-        ) : null}
-      </div>
-    </Sheet>
+          {data?.shift && !isMine && !pending && eligibility?.eligible ? (
+            <>
+              {isSwap ? (
+                <ReturnDatePicker
+                  offered={data.shift.return_dates}
+                  valid={validReturns}
+                  value={chosenReturn}
+                  onChange={setReturnDate}
+                  posterName={posterName}
+                  disabled={submitting}
+                />
+              ) : null}
+              <Field
+                label={`Message to ${posterName} (optional)`}
+                hint="They'll see it with your request."
+              >
+                <Textarea
+                  rows={3}
+                  maxLength={REQUEST_MESSAGE_MAX}
+                  showCount
+                  value={message}
+                  disabled={submitting}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="e.g. Happy to swap — text me if you need anything."
+                />
+              </Field>
+            </>
+          ) : null}
+        </div>
+      </Sheet>
+
+      <WithdrawRequestDialog
+        request={withdrawing}
+        posterName={posterName}
+        onClose={() => setWithdrawing(null)}
+        onChanged={afterWithdraw}
+      />
+    </>
   )
 }
 
 function ShiftDetails({ shift, nowMs }: { shift: Shift; nowMs: number }) {
-  const limit = acceptLimitLabel(shift)
-  const posted = timeAgo(shift.created_at, nowMs)
+  const limit = acceptLimitLabel(shift.accept_limit, shift.station)
+  const posted = relativeTime(shift.created_at, nowMs, { style: 'inline' })
   return (
     <div className="rounded-2xl border border-line bg-elevated/60 p-4">
       <p className="font-display text-2xl leading-none text-fg">{shift.shift_type}</p>
@@ -370,7 +366,7 @@ function ReturnDatePicker({
 }
 
 function PendingRequest({ request, posterName, nowMs }: { request: ShiftRequest; posterName: string; nowMs: number }) {
-  const ago = timeAgo(request.created_at, nowMs)
+  const ago = relativeTime(request.created_at, nowMs, { style: 'inline' })
   return (
     <Notice tone="success" title="You asked for this shift">
       <span className="block">

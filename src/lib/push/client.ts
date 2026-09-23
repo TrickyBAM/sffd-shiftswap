@@ -2,11 +2,21 @@
  * Browser-side Web Push + PWA helpers (ARCHITECTURE §6.5, §8).
  *
  * Every function is safe to import anywhere; the browser-only ones return a harmless
- * value on the server. Subscriptions are stored in public.push_subscriptions through the
- * signed-in user's Supabase client (RLS: select/insert/delete own rows; no update).
+ * value on the server. Subscription rows are written only through src/lib/api/push.ts
+ * (savePushSubscription / deletePushSubscription): a plain insert that the database
+ * turns into "this device now alerts the member who signed in last" (§9).
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  deletePushSubscription,
+  hasPushSubscription,
+  isUnsupportedPushService,
+  pushSubscriptionInput,
+  PUSH_UNSUPPORTED_MESSAGE,
+  savePushSubscription,
+} from '@/lib/api/push'
+import { isAppError } from '@/lib/errors'
 
 export type PushPermission = NotificationPermission | 'unsupported'
 
@@ -21,6 +31,13 @@ export type PushFailureReason =
 export type PushResult =
   | { ok: true; endpoint: string }
   | { ok: false; reason: PushFailureReason; message: string }
+
+/**
+ * localStorage keys for "don't show this alerts prompt again" on this device.
+ * Sign-out clears them so the next member on a shared phone gets the prompt.
+ */
+export const ALERTS_NUDGE_DISMISSED_KEY = 'shiftswap:alerts-nudge:dismissed'
+export const PUSH_BANNER_DISMISSED_KEY = 'shiftswap:alerts:push-banner-dismissed'
 
 const SW_URL = '/sw.js'
 const SW_READY_TIMEOUT_MS = 10_000
@@ -122,42 +139,24 @@ export async function getCurrentPushSubscription(): Promise<PushSubscription | n
   return registration.pushManager.getSubscription()
 }
 
-type SaveOutcome = 'saved' | 'owned-by-someone-else' | 'error'
+/**
+ * Store this device's subscription for the signed-in member (src/lib/api/push.ts).
+ * A plain insert: the database's BEFORE INSERT trigger replaces a row for the same
+ * endpoint, even one another account on this device left behind, so the device
+ * always alerts whoever turned alerts on last. Throws AppError.
+ */
+async function storeSubscription(sb: SupabaseClient, subscription: PushSubscription): Promise<void> {
+  const input = pushSubscriptionInput(subscription.toJSON(), navigator.userAgent)
+  if (!input) throw new Error('The browser returned an incomplete push subscription.')
+  await savePushSubscription(sb, input)
+}
 
-/** Insert the subscription row for `userId`; an existing identical endpoint row is left alone. */
-async function saveSubscription(
-  sb: SupabaseClient,
-  userId: string,
-  subscription: PushSubscription,
-): Promise<SaveOutcome> {
-  const json = subscription.toJSON()
-  const p256dh = json.keys?.p256dh
-  const auth = json.keys?.auth
-  if (!json.endpoint || !p256dh || !auth) return 'error'
-
-  // ignoreDuplicates → INSERT … ON CONFLICT (endpoint) DO NOTHING, which needs only the
-  // INSERT grant (members have no UPDATE on push_subscriptions).
-  const { error } = await sb.from('push_subscriptions').upsert(
-    {
-      user_id: userId,
-      endpoint: json.endpoint,
-      p256dh,
-      auth,
-      user_agent: navigator.userAgent.slice(0, 500),
-    },
-    { onConflict: 'endpoint', ignoreDuplicates: true },
-  )
-  if (error) return 'error'
-
-  // RLS only shows our own rows: if the endpoint exists but we can't see it, another
-  // account on this device registered it (e.g. a shared phone after a sign-out).
-  const { data, error: readError } = await sb
-    .from('push_subscriptions')
-    .select('id')
-    .eq('endpoint', json.endpoint)
-    .maybeSingle()
-  if (readError) return 'error'
-  return data ? 'saved' : 'owned-by-someone-else'
+/** The PushResult for an error from storing the subscription. */
+function storeFailure(error: unknown): PushResult {
+  // SQLSTATE 23514: the database only accepts the browsers' real push services (§9).
+  if (isUnsupportedPushService(error)) return fail('unsupported', PUSH_UNSUPPORTED_MESSAGE)
+  if (isAppError(error) && error.code === 'NOT_SIGNED_IN') return fail('not-signed-in')
+  return fail('failed')
 }
 
 /**
@@ -182,33 +181,31 @@ export async function subscribeToPush(
   if (permission === 'denied') return fail('denied')
   if (permission !== 'granted') return fail('dismissed')
 
+  let subscription: PushSubscription
   try {
-    const { data: userData, error: userError } = await sb.auth.getUser()
-    const userId = userData.user?.id
-    if (userError || !userId) return fail('not-signed-in')
-
     const registration = await getRegistration()
     const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey)
 
-    let subscription = await registration.pushManager.getSubscription()
+    let existing = await registration.pushManager.getSubscription()
     // A subscription made with a different (rotated) VAPID key can't receive our pushes.
-    if (subscription && !sameKey(subscription.options.applicationServerKey, applicationServerKey)) {
-      await subscription.unsubscribe().catch(() => false)
-      subscription = null
+    if (existing && !sameKey(existing.options.applicationServerKey, applicationServerKey)) {
+      await existing.unsubscribe().catch(() => false)
+      existing = null
     }
-    subscription ??= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })
-
-    let outcome = await saveSubscription(sb, userId, subscription)
-    if (outcome === 'owned-by-someone-else') {
-      // Get a fresh endpoint for this account instead of sharing the other one's.
-      await subscription.unsubscribe().catch(() => false)
-      subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })
-      outcome = await saveSubscription(sb, userId, subscription)
-    }
-    if (outcome !== 'saved') return fail('failed')
-    return { ok: true, endpoint: subscription.endpoint }
+    subscription = existing ?? (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey }))
   } catch {
     return fail('failed')
+  }
+
+  try {
+    await storeSubscription(sb, subscription)
+    return { ok: true, endpoint: subscription.endpoint }
+  } catch (error) {
+    const result = storeFailure(error)
+    // The database won't take this push service: don't leave a browser
+    // subscription behind that the toggle would show as "on".
+    if (result.ok === false && result.reason === 'unsupported') await subscription.unsubscribe().catch(() => false)
+    return result
   }
 }
 
@@ -222,10 +219,12 @@ export async function resyncPushSubscription(sb: SupabaseClient): Promise<boolea
     if (getPushPermission() !== 'granted') return false
     const subscription = await getCurrentPushSubscription()
     if (!subscription) return false
-    const { data } = await sb.auth.getUser()
-    if (!data.user) return false
-    return (await saveSubscription(sb, data.user.id, subscription)) === 'saved'
+    // Already stored for me: nothing to do (and no needless delete + insert).
+    if (await hasPushSubscription(sb, subscription.endpoint)) return true
+    await storeSubscription(sb, subscription)
+    return true
   } catch {
+    // Signed out, offline or rejected: try again next time the app opens.
     return false
   }
 }
@@ -233,34 +232,57 @@ export async function resyncPushSubscription(sb: SupabaseClient): Promise<boolea
 /**
  * Turn off alerts on this device: delete our row and unsubscribe the browser.
  * Call before signing out so the next person on this phone doesn't get your alerts.
+ * Returns false when either step failed (the browser is still unsubscribed if it could be).
  */
 export async function unsubscribeFromPush(sb: SupabaseClient): Promise<boolean> {
   try {
     const subscription = await getCurrentPushSubscription()
     if (!subscription) return true
-    const { error } = await sb.from('push_subscriptions').delete().eq('endpoint', subscription.endpoint)
+    let deleted = true
+    try {
+      await deletePushSubscription(sb, subscription.endpoint)
+    } catch {
+      deleted = false
+    }
     const unsubscribed = await subscription.unsubscribe().catch(() => false)
-    return !error && unsubscribed
+    return deleted && unsubscribed
   } catch {
     return false
   }
 }
 
 /**
- * Delete every Cache Storage entry for this origin (static assets + offline page) and
- * ask the service worker to do the same. Used on sign-out.
+ * Close the ShiftSwap alerts already showing on this device (e.g. at sign-out,
+ * so the next person on a shared phone doesn't see "Mike asked for your shift").
+ * Best effort; never throws.
+ */
+export async function closeShownNotifications(): Promise<void> {
+  if (!isPushSupported()) return
+  try {
+    const registration = await navigator.serviceWorker.getRegistration('/')
+    if (!registration?.getNotifications) return
+    const shown = await registration.getNotifications()
+    for (const notification of shown) notification.close()
+  } catch {
+    // No worker or no permission: nothing is showing.
+  }
+}
+
+/** Cache Storage names the current service worker owns (static files and /offline only). */
+const SW_STATIC_CACHE_PREFIX = 'shiftswap-static-'
+
+/**
+ * Sign-out cleanup for Cache Storage: deletes caches that could hold a member's
+ * data, which today means only the pre-v1 worker's page caches. The service
+ * worker's own static cache is kept: it holds only hashed JS/CSS, icons and the
+ * /offline page (§8 — pages with member data are never cached), and deleting it
+ * would break the offline screen until the next deploy.
  */
 export async function clearAppCaches(): Promise<void> {
-  if (!isBrowser()) return
-  try {
-    navigator.serviceWorker?.controller?.postMessage({ type: 'CLEAR_CACHES' })
-  } catch {
-    // No controlling worker: nothing to tell.
-  }
-  if (typeof caches === 'undefined') return
+  if (!isBrowser() || typeof caches === 'undefined') return
   try {
     const keys = await caches.keys()
-    await Promise.all(keys.map((key) => caches.delete(key)))
+    await Promise.all(keys.filter((key) => !key.startsWith(SW_STATIC_CACHE_PREFIX)).map((key) => caches.delete(key)))
   } catch {
     // Cache Storage can be unavailable (private mode); nothing cached then.
   }

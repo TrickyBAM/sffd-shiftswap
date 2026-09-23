@@ -8,6 +8,7 @@ import { OfflineRibbon } from '@/components/OfflineRibbon'
 import { useProfile } from '@/components/providers/ProfileProvider'
 import { useRealtimeRefetch } from '@/hooks/useRealtimeRefetch'
 import { isUuid } from '@/lib/api'
+import { plural } from '@/lib/format'
 import { formatDate, todayPT, type Ymd } from '@/lib/sffd/dates'
 import type { Shift } from '@/lib/types/database'
 import { toastActionError } from '../_lib/errors'
@@ -15,13 +16,16 @@ import {
   boardQueryKey,
   defaultBoardFilters,
   describeFilters,
+  initialBoardFilters,
   isAllLocations,
+  isScopeAllParam,
+  locationChanged,
   parseDateParam,
   withAllLocations,
   type BoardFilterState,
   type BoardMember,
 } from '../_lib/filters'
-import { dayHeading, groupByDate, plural } from '../_lib/format'
+import { dayHeading, groupByDate } from '../_lib/format'
 import { useBoardData, type BoardQuery } from '../_lib/useBoardData'
 import { BoardFilterBar } from './BoardFilterBar'
 import { RequestSheet } from './RequestSheet'
@@ -44,6 +48,8 @@ export function BoardView() {
   const searchParams = useSearchParams()
   const date = parseDateParam(searchParams.get('date'))
   const shiftParam = searchParams.get('shift')
+  // ?scope=all (e.g. the calendar's "See N available"): every location, my rank.
+  const scopeAll = isScopeAllParam(searchParams.get('scope'))
 
   const member = useMemo<BoardMember>(
     () => ({
@@ -57,7 +63,13 @@ export function BoardView() {
     [profile.id, profile.rank, profile.station, profile.battalion, profile.division, profile.tour],
   )
   const defaults = useMemo(() => defaultBoardFilters(member), [member])
-  const [filters, setFilters] = useState<BoardFilterState>(defaults)
+  const [filters, setFilters] = useState<BoardFilterState>(() => initialBoardFilters(defaults, scopeAll))
+  // A new ?scope=all link while the Board is already open starts from every location again.
+  const [seenScopeAll, setSeenScopeAll] = useState(scopeAll)
+  if (scopeAll !== seenScopeAll) {
+    setSeenScopeAll(scopeAll)
+    if (scopeAll) setFilters(initialBoardFilters(defaults, true))
+  }
   const query = useMemo<BoardQuery>(() => ({ filters, date }), [filters, date])
   const board = useBoardData(member, query)
 
@@ -79,6 +91,16 @@ export function BoardView() {
       const next = new URLSearchParams(searchParams.toString())
       next.delete('shift')
       replaceQuery(pathname, next)
+    }
+  }
+
+  function changeFilters(next: BoardFilterState) {
+    setFilters(next)
+    // Once the member picks a location, ?scope=all no longer describes the list.
+    if (scopeAll && locationChanged(filters, next)) {
+      const params = new URLSearchParams(searchParams.toString())
+      params.delete('scope')
+      replaceQuery(pathname, params)
     }
   }
 
@@ -105,7 +127,7 @@ export function BoardView() {
 
   return (
     <div className="space-y-4">
-      <BoardFilterBar filters={filters} onChange={setFilters} defaults={defaults} memberRank={profile.rank} />
+      <BoardFilterBar filters={filters} onChange={changeFilters} defaults={defaults} memberRank={profile.rank} />
 
       {date ? (
         <div className="flex min-h-11 items-center justify-between gap-2 rounded-xl border border-accent-blue/30 bg-accent-blue/10 py-0.5 pl-3 pr-1">
@@ -150,13 +172,14 @@ export function BoardView() {
           onRetry={board.retry}
           retrying={board.retrying}
         />
-      ) : data && data.items.length === 0 ? (
+      ) : data && data.items.length === 0 && !data.nextCursor ? (
         <BoardEmpty
           filters={filters}
           date={date}
           excludedDay={date != null && filters.onlyEligible && data.excludeDates.includes(date)}
-          onAllLocations={() => setFilters(withAllLocations(filters))}
-          onShowAllShifts={() => setFilters({ ...filters, onlyEligible: false })}
+          pmDay={date != null && filters.onlyEligible && data.pmDates.includes(date)}
+          onAllLocations={() => changeFilters(withAllLocations(filters))}
+          onShowAllShifts={() => changeFilters({ ...filters, onlyEligible: false })}
           onShowAllDates={showAllDates}
         />
       ) : data && today ? (
@@ -185,6 +208,12 @@ export function BoardView() {
             </section>
           ))}
 
+          {groups.length === 0 && data.nextCursor ? (
+            <p className="text-center text-sm text-fg-muted">
+              None of the shifts checked so far are ones you can take. There are more to look through.
+            </p>
+          ) : null}
+
           {data.nextCursor ? (
             <Button variant="secondary" fullWidth loading={board.loadingMore} onClick={loadMore}>
               Load more shifts
@@ -212,6 +241,7 @@ function BoardEmpty({
   filters,
   date,
   excludedDay,
+  pmDay,
   onAllLocations,
   onShowAllShifts,
   onShowAllDates,
@@ -219,16 +249,23 @@ function BoardEmpty({
   filters: BoardFilterState
   date: Ymd | null
   excludedDay: boolean
+  /** I gave away only the PM that day, so I still work 0800–1600. */
+  pmDay: boolean
   onAllLocations: () => void
   onShowAllShifts: () => void
   onShowAllDates: () => void
 }) {
   if (excludedDay && date) {
+    const day = formatDate(date, 'weekday')
     return (
       <EmptyState
         icon={<CalendarDays size={28} />}
         title="You're on duty that day"
-        description={`You're working (or already covering) on ${formatDate(date, 'weekday')}, so there's nothing there you can take.`}
+        description={
+          pmDay
+            ? `You gave away only the PM on ${day}, so you still work 0800–1600. You can't take another shift that day.`
+            : `You're working (or already covering or posting a shift) on ${day}, so there's nothing there you can take.`
+        }
         action={
           <div className="flex flex-wrap justify-center gap-2">
             <Button variant="secondary" onClick={onShowAllDates}>

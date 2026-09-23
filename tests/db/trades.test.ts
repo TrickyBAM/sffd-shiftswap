@@ -243,7 +243,8 @@ describe('SwapMatch confirm', () => {
       they_covered_24: 1,
       net_24: 0,
       net_pm: 0,
-      upcoming: 2,
+      // both legs are one trade (review TF-8)
+      upcoming: 1,
     })
   })
 
@@ -397,6 +398,7 @@ describe('my_schedule', () => {
     given_shift_id: string | null
     picked_shift_id: string | null
     is_swap: boolean
+    pm_given_away: boolean
   }
   const schedule = (m: Member, from: string, to: string) =>
     t.rpc<Day[]>(m.id, 'my_schedule', { p_from: from, p_to: to })
@@ -420,7 +422,7 @@ describe('my_schedule', () => {
     for (const d of days) {
       expect(d.base, d.date).toBe(tourWorks(1, d.date))
       if (d.date === given) {
-        expect(d).toMatchObject({ given_away: true, working: false, given_shift_id: givenId, is_swap: false })
+        expect(d).toMatchObject({ given_away: true, pm_given_away: false, working: false, given_shift_id: givenId, is_swap: false })
       } else if (d.date === picked) {
         expect(d).toMatchObject({ picked_up: true, working: true, picked_shift_id: pickedId, base: false })
       } else if (d.date === open) {

@@ -70,7 +70,10 @@ export default function PushToggle({
   className,
 }: PushToggleProps) {
   const toast = useToast()
-  const [state, setState] = useState<PushState>('checking')
+  const [detected, setState] = useState<PushState>('checking')
+  // The database refused this browser's push service (SQLSTATE 23514): say so and stop offering.
+  const [serviceRejected, setServiceRejected] = useState(false)
+  const state: PushState = serviceRejected ? 'unsupported' : detected
   const [busy, setBusy] = useState(false)
   const id = useId()
   const titleId = `push-${id}-title`
@@ -113,7 +116,10 @@ export default function PushToggle({
       } else {
         const result = await subscribeToPush(sb, vapidPublicKey)
         if (result.ok) toast.success('Alerts are on for this device')
-        else if (result.reason !== 'dismissed') toast.error("Alerts aren't on", result.message)
+        else {
+          if (result.reason === 'unsupported') setServiceRejected(true)
+          if (result.reason !== 'dismissed') toast.error("Alerts aren't on", result.message)
+        }
       }
     } finally {
       setBusy(false)

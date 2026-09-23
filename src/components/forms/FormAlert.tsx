@@ -4,12 +4,16 @@ import { cn } from '@/components/ui/cn'
 
 export interface FormAlertProps {
   children: ReactNode
-  /** Extra content under the message (e.g. a link). */
+  /** Extra content under the message (e.g. a link or a "Try again" button). */
   action?: ReactNode
   className?: string
 }
 
-/** A form-level error (e.g. "That email and password don't match"), announced when it appears. */
+/**
+ * A form-level error (e.g. "That email and password don't match", or the
+ * database's friendly message), announced as soon as it appears (role=alert).
+ * Render it only while there is an error, so each new one is announced.
+ */
 export function FormAlert({ children, action, className }: FormAlertProps) {
   return (
     <div

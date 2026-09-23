@@ -7,8 +7,8 @@ import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { z } from 'zod'
 import { IdCard, UserRoundCheck } from 'lucide-react'
-import { FormAlert } from '@/app/(auth)/_components/FormAlert'
-import { EMPLOYEE_ID_MAX, NAME_MAX, onboardingSchema } from '@/app/(auth)/_lib/validation'
+import { onboardingSchema } from '@/app/(auth)/_lib/validation'
+import { FormAlert } from '@/components/forms/FormAlert'
 import { StationPicker, TourPicker } from '@/components/pickers'
 import { Button } from '@/components/ui/Button'
 import { buttonClasses } from '@/components/ui/button-styles'
@@ -20,6 +20,8 @@ import { completeOnboarding } from '@/lib/api'
 import { toAppError } from '@/lib/errors'
 import { RANKS, isRank } from '@/lib/sffd/ranks'
 import { createClient } from '@/lib/supabase/client'
+import { EMPLOYEE_ID_MAX, NAME_MAX } from '@/lib/validation'
+import { EmailAddress } from '../../_components/EmailAddress'
 
 export interface OnboardingDefaults {
   fullName: string
@@ -112,7 +114,7 @@ export function OnboardingForm({ defaults, editing, email }: OnboardingFormProps
             </p>
             {email ? (
               <p className="mt-2">
-                Signed in as <span className="break-all text-fg">{email}</span>
+                Signed in as <EmailAddress email={email} className="text-fg" />
               </p>
             ) : null}
           </div>

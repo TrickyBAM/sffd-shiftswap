@@ -1,9 +1,10 @@
 import { Clock, MapPin, Repeat2, ShieldCheck } from 'lucide-react'
 import { Badge, Card } from '@/components/ui'
 import type { TradeDetail } from '@/lib/api'
+import { acceptLimitLabel, relativeTime } from '@/lib/format'
 import { formatDate } from '@/lib/sffd/dates'
 import { stationPathLabel } from '@/lib/sffd/stations'
-import { acceptLimitLabel, listDates, shiftTimesLabel, timeAgo, ymdOfInstant } from '@/app/(app)/board/_lib/format'
+import { listDates, shiftTimesLabel, ymdOfInstant } from '@/app/(app)/board/_lib/format'
 import { isSwapMatch, type Legs, type TradeStatusInfo } from '../_lib/trade-model'
 
 export interface TradeOverviewProps {
@@ -20,8 +21,8 @@ export function TradeOverview({ detail, legs, status, nowMs }: TradeOverviewProp
   const original = detail.shift
   const swap = isSwapMatch(detail)
   const openOffer = original.status === 'open' && !viewingReturnLeg
-  const limit = openOffer ? acceptLimitLabel(original) : null
-  const posted = timeAgo(viewed.created_at, nowMs)
+  const limit = openOffer ? acceptLimitLabel(original.accept_limit, original.station) : null
+  const posted = relativeTime(viewed.created_at, nowMs, { style: 'inline' })
   const cancelledOn = ymdOfInstant(viewed.cancelled_at)
 
   return (

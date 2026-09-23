@@ -3,9 +3,17 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import PushToggle from '@/components/PushToggle'
-import { getCurrentPushSubscription, getPushPermission, isPushSupported, needsInstallForPush } from '@/lib/push/client'
+import {
+  getCurrentPushSubscription,
+  getPushPermission,
+  isPushSupported,
+  needsInstallForPush,
+  PUSH_BANNER_DISMISSED_KEY,
+} from '@/lib/push/client'
 
-const DISMISS_KEY = 'shiftswap:alerts:push-banner-dismissed'
+// The same key sign-out forgets (src/lib/auth/sign-out.ts), so the next member
+// on a shared phone is offered alerts again.
+const DISMISS_KEY = PUSH_BANNER_DISMISSED_KEY
 
 /**
  * Should the "alerts when the app is closed" banner show? Only when this device

@@ -2,7 +2,6 @@
 
 import { usePathname } from 'next/navigation'
 import { LinkTabs } from '@/components/ui'
-import { useAdmin } from './AdminProvider'
 
 export const ADMIN_SECTIONS = [
   { href: '/admin', label: 'Approvals' },
@@ -22,12 +21,18 @@ export function activeAdminHref(pathname: string): string {
   return best
 }
 
-/** Approvals · Members · Roster · Trades · Activity. */
+/**
+ * Approvals · Members · Roster · Trades · Activity (UX-08). The five labels
+ * fit a 375 px phone on one row (measured in Chromium with DM Sans: 341 of
+ * 341 px); narrower phones scroll sideways with an edge fade (LinkTabs). The
+ * waiting-for-approval count isn't repeated on the Approvals tab: a count
+ * bubble would push Activity off a 375 px screen, and the same number sits
+ * right below in the overview strip's "Waiting" tile, highlighted when it
+ * isn't zero, on every admin page.
+ */
 export function AdminTabs({ className }: { className?: string }) {
   const pathname = usePathname() ?? '/admin'
-  const { overview } = useAdmin()
-  const items = ADMIN_SECTIONS.map((section) =>
-    section.href === '/admin' ? { ...section, count: overview?.pending_members ?? 0 } : section,
+  return (
+    <LinkTabs label="Admin sections" items={ADMIN_SECTIONS} activeHref={activeAdminHref(pathname)} className={className} />
   )
-  return <LinkTabs label="Admin sections" items={items} activeHref={activeAdminHref(pathname)} className={className} />
 }

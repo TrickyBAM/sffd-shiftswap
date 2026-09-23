@@ -1,21 +1,20 @@
 // Pure helpers for /profile: labels, stats wording, the trust-score copy and
-// the form rules. No I/O, so they are unit-tested
-// (tests/unit/profile-model.test.ts).
+// the details form. No I/O, so they are unit-tested
+// (tests/unit/profile-model.test.ts). Shared rules and labels come from
+// src/lib/validation.ts (phone, password) and src/lib/format.ts (tour label,
+// counts), so every screen words and checks them the same way.
 
 import { z } from 'zod'
+import { plural } from '@/lib/format'
 import { daysInMonth, makeYmd, monthOf, type Ymd } from '@/lib/sffd/dates'
 import { battalionLabel, divisionLabel, isStation, stationInfo, stationLabel } from '@/lib/sffd/stations'
 import { isTour } from '@/lib/sffd/tours'
 import { NOTIFY_SCOPES, type MyStats, type NotifyScope, type Shift } from '@/lib/types/database'
+import { newPasswordSchema, PASSWORD_CONFIRM_MESSAGE, PASSWORD_MISMATCH_MESSAGE, phoneSchema } from '@/lib/validation'
 
 // ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
-
-/** "Tour 12" or "No tour". */
-export function tourLabel(tour: number | null | undefined): string {
-  return isTour(tour) ? `Tour ${tour}` : 'No tour'
-}
 
 export interface LocationLabels {
   station: string
@@ -77,6 +76,27 @@ export function notifyScopeDescription(scope: NotifyScope, station: number | nul
 }
 
 // ---------------------------------------------------------------------------
+// Calendar feed (UX-15)
+// ---------------------------------------------------------------------------
+
+/**
+ * Which "add to calendar" path to lead with:
+ *   apple    iPhone, iPad, Mac: the webcal:// link opens Calendar's Subscribe screen
+ *   android  webcal:// links usually do nothing, and the Google Calendar app
+ *            can't subscribe by link: copy the link, add it on calendar.google.com
+ *   other    Windows, Linux, …: copy the link into Google Calendar or Outlook
+ */
+export type CalendarPlatform = 'apple' | 'android' | 'other'
+
+export function calendarPlatform(userAgent: string | null | undefined): CalendarPlatform {
+  const ua = userAgent ?? ''
+  if (/Android/i.test(ua)) return 'android'
+  // iPadOS reports itself as a Mac ("Macintosh"), which is also right here.
+  if (/iPhone|iPad|iPod|Macintosh|Mac OS X/i.test(ua)) return 'apple'
+  return 'other'
+}
+
+// ---------------------------------------------------------------------------
 // Stats (my_stats)
 // ---------------------------------------------------------------------------
 
@@ -87,23 +107,21 @@ export function formatSigned(n: number): string {
   return '0'
 }
 
-/** "1 shift" / "3 shifts" */
-export function countLabel(count: number, one: string, many = `${one}s`): string {
-  return `${count} ${count === 1 ? one : many}`
-}
-
 /** Balance = Covered − Given. */
 export function balanceOf(stats: Pick<MyStats, 'covered' | 'given'>): number {
   return stats.covered - stats.given
 }
 
-/** One plain sentence about the overall balance. */
+/**
+ * One plain sentence about the overall balance, in the words the stats use:
+ * Covered = shifts you worked for someone, Given = shifts someone worked for you.
+ */
 export function balanceSentence(stats: Pick<MyStats, 'covered' | 'given'>): string {
   const net = balanceOf(stats)
   if (stats.covered === 0 && stats.given === 0) return 'No trades yet. Your balance starts at 0.'
-  if (net > 0) return `You've covered ${countLabel(net, 'more shift')} than you've given away.`
-  if (net < 0) return `You've given away ${countLabel(-net, 'more shift')} than you've covered.`
-  return "You're even: you've covered as many shifts as you've given away."
+  if (net > 0) return `You've covered ${plural(net, 'more shift')} than you've given.`
+  if (net < 0) return `You've given ${plural(-net, 'more shift')} than you've covered.`
+  return "You're even: you've covered as many shifts as you've given."
 }
 
 export interface Reciprocity {
@@ -158,8 +176,8 @@ export function trustMessage(
   const s = clampScore(score)
   const done = context.month?.done ?? 0
   const upcoming = context.month?.upcoming ?? 0
-  if (done > 0) return `${text} — you've covered ${countLabel(done, 'shift')} this month.`
-  if (upcoming > 0) return `${text} — you're covering ${countLabel(upcoming, 'shift')} this month.`
+  if (done > 0) return `${text} — you've covered ${plural(done, 'shift')} this month.`
+  if (upcoming > 0) return `${text} — you're covering ${plural(upcoming, 'shift')} this month.`
   if (context.covered === 0 && context.given === 0) {
     return s >= 100
       ? `${text} — you're starting with a perfect score.`
@@ -206,21 +224,9 @@ export function coversInRange(
 // Forms
 // ---------------------------------------------------------------------------
 
-// Mirrors the database's phone check (digits, +, -, (, ), space; 7–20
-// characters) and requires at least 7 digits.
-const PHONE_RE = /^[0-9+() -]{7,20}$/
-
-export function isValidPhone(value: string): boolean {
-  const phone = value.trim()
-  return PHONE_RE.test(phone) && (phone.match(/\d/g)?.length ?? 0) >= 7
-}
-
+/** Profile ▸ Edit my details. The phone rule is the shared one (src/lib/validation.ts). */
 export const detailsSchema = z.object({
-  phone: z
-    .string()
-    .trim()
-    .min(1, 'Enter your mobile number.')
-    .refine(isValidPhone, 'Enter a phone number with area code, like 415-555-0123.'),
+  phone: phoneSchema,
   station: z
     .number()
     .nullable()
@@ -232,21 +238,37 @@ export const detailsSchema = z.object({
 export type DetailsFormValues = z.input<typeof detailsSchema>
 export type DetailsValues = z.output<typeof detailsSchema>
 
-export const PASSWORD_MIN = 8
-/** Supabase Auth (bcrypt) ignores anything past 72 characters. */
-export const PASSWORD_MAX = 72
+export const CURRENT_PASSWORD_REQUIRED_MESSAGE = 'Enter your current password.'
+export const CURRENT_PASSWORD_WRONG_MESSAGE =
+  "That isn't your current password. Try again, or ask an admin to reset it if you've forgotten it."
 
-export const passwordSchema = z
+/**
+ * Profile ▸ Change password (SEC-1): the current password first, then the
+ * shared new-password + confirmation rules (src/lib/validation.ts).
+ */
+export const profilePasswordSchema = z
   .object({
-    password: z
-      .string()
-      .min(PASSWORD_MIN, `Use at least ${PASSWORD_MIN} characters.`)
-      .max(PASSWORD_MAX, `Use ${PASSWORD_MAX} characters or fewer.`),
-    confirmPassword: z.string().min(1, 'Type your new password again.'),
+    currentPassword: z.string().min(1, CURRENT_PASSWORD_REQUIRED_MESSAGE),
+    password: newPasswordSchema,
+    confirmPassword: z.string().min(1, PASSWORD_CONFIRM_MESSAGE),
   })
   .refine((values) => values.password === values.confirmPassword, {
     path: ['confirmPassword'],
-    error: "The two passwords don't match.",
+    error: PASSWORD_MISMATCH_MESSAGE,
   })
 
-export type PasswordFormValues = z.input<typeof passwordSchema>
+export type ProfilePasswordValues = z.input<typeof profilePasswordSchema>
+
+/**
+ * True when the check sign-in with the current password was refused because
+ * the password is wrong (auth error code invalid_credentials), as opposed to
+ * a network problem or rate limit, which keep their own messages.
+ */
+export function isWrongCurrentPassword(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'invalid_credentials'
+}
+
+/** The auth error code Supabase sends when a password change needs a fresh sign-in. */
+export function needsFreshSignIn(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'reauthentication_needed'
+}

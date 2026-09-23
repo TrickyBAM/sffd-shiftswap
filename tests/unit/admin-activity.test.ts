@@ -102,6 +102,33 @@ describe('describeActivity', () => {
     expect(describeActivity(entry({ ...base, action: 'admin.member_role', details: { to: 'member' } }), ctx).text).toBe(
       'Brian Machado removed admin access from Mike Lee',
     )
+    expect(
+      describeActivity(entry({ ...base, action: 'admin.member_status', details: { to: 'approved', was_removed: true } }), ctx),
+    ).toMatchObject({ text: 'Brian Machado reactivated Mike Lee', detail: 'Their account had been removed.' })
+  })
+
+  it('describes an account removal with the reason and what is left to do', () => {
+    const line = describeActivity(
+      entry({
+        action: 'member.removed',
+        actor_id: BRIAN,
+        target_type: 'profile',
+        target_id: MIKE,
+        details: { reason: 'Retired, asked by text', posts_cancelled: 1, requests_closed: 2, upcoming_trades: 2 },
+      }),
+      ctx,
+    )
+    expect(line).toMatchObject({
+      text: "Brian Machado removed Mike Lee's account",
+      detail: '“Retired, asked by text” 1 open post taken down. 2 confirmed trades still coming up.',
+      href: `/admin/members?member=${MIKE}`,
+      kind: 'admin',
+    })
+    expect(
+      describeActivity(entry({ action: 'member.removed', actor_id: BRIAN, target_type: 'profile', target_id: MIKE }), ctx)
+        .detail,
+    ).toBeNull()
+    expect(ACTIVITY_FILTER_VALUES.has('member.removed')).toBe(true)
   })
 
   it('lists which member details an admin edited', () => {

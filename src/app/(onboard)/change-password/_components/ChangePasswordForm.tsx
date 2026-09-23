@@ -5,9 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { KeyRound } from 'lucide-react'
-import { FormAlert } from '@/app/(auth)/_components/FormAlert'
-import { PasswordInput } from '@/app/(auth)/_components/PasswordInput'
-import { PASSWORD_MAX, PASSWORD_MIN, changePasswordSchema } from '@/app/(auth)/_lib/validation'
+import { FormAlert } from '@/components/forms/FormAlert'
+import { PasswordInput } from '@/components/forms/PasswordInput'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Field } from '@/components/ui/Field'
@@ -15,6 +14,7 @@ import { useToast } from '@/components/ui/Toast'
 import { clearMustChangePassword } from '@/lib/api'
 import { toAppError } from '@/lib/errors'
 import { createClient } from '@/lib/supabase/client'
+import { changePasswordSchema, PASSWORD_MAX, PASSWORD_MIN } from '@/lib/validation'
 import { SignOutButton } from '../../_components/SignOutButton'
 
 export interface ChangePasswordFormProps {
@@ -24,10 +24,42 @@ export interface ChangePasswordFormProps {
   email: string
 }
 
+/**
+ * Supabase refuses a password change on a session older than a day when
+ * "secure password change" is on ('reauthentication_needed'): the member has
+ * to log in again first. They still know the temporary password.
+ */
+const REAUTH_MESSAGE =
+  'For your security, sign out and log back in with your temporary password, then choose your new password right away.'
+
+interface Problem {
+  message: string
+  /** Offer "Sign out" in the message (the fix is to log in again). */
+  signOut?: boolean
+}
+
+function authCode(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null) return null
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' ? code : null
+}
+
+/** What went wrong, in words that fit this screen. */
+function problemFrom(error: unknown): Problem {
+  switch (authCode(error)) {
+    case 'reauthentication_needed':
+      return { message: REAUTH_MESSAGE, signOut: true }
+    case 'same_password':
+      return { message: "That's the temporary password. Choose a new one." }
+    default:
+      return { message: toAppError(error).message }
+  }
+}
+
 export function ChangePasswordForm({ next, email }: ChangePasswordFormProps) {
   const router = useRouter()
   const toast = useToast()
-  const [formError, setFormError] = useState<string | null>(null)
+  const [formError, setFormError] = useState<Problem | null>(null)
   // The password can be saved while clearing the reset flag fails; a retry
   // then only needs the second step.
   const passwordSaved = useRef(false)
@@ -61,7 +93,7 @@ export function ChangePasswordForm({ next, email }: ChangePasswordFormProps) {
       }
       await finish()
     } catch (err) {
-      setFormError(toAppError(err).message)
+      setFormError(problemFrom(err))
       if (passwordSaved.current) setStuck(true)
     }
   })
@@ -73,7 +105,7 @@ export function ChangePasswordForm({ next, email }: ChangePasswordFormProps) {
     try {
       await finish()
     } catch (err) {
-      setFormError(toAppError(err).message)
+      setFormError(problemFrom(err))
     } finally {
       setRetrying(false)
     }
@@ -88,7 +120,7 @@ export function ChangePasswordForm({ next, email }: ChangePasswordFormProps) {
           Your new password is saved, but we couldn&apos;t finish setting up your account. Check your connection and
           try again.
         </p>
-        {formError ? <FormAlert>{formError}</FormAlert> : null}
+        {formError ? <FormAlert>{formError.message}</FormAlert> : null}
         <Button size="lg" fullWidth loading={retrying || leaving} onClick={retryFinish}>
           {leaving ? 'Opening ShiftSwap…' : 'Try again'}
         </Button>
@@ -119,7 +151,11 @@ export function ChangePasswordForm({ next, email }: ChangePasswordFormProps) {
             hidden
           />
 
-          {formError ? <FormAlert>{formError}</FormAlert> : null}
+          {formError ? (
+            <FormAlert action={formError.signOut ? <SignOutButton variant="secondary" size="sm" /> : undefined}>
+              {formError.message}
+            </FormAlert>
+          ) : null}
 
           <Field
             label="New password"

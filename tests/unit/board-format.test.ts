@@ -2,39 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { AppError } from '@/lib/errors'
 import { describeActionError, isAccountError, isStaleDataError } from '@/app/(app)/board/_lib/errors'
 import {
-  acceptLimitLabel,
   chatDayLabel,
   dayHeading,
-  dialable,
   groupByDate,
   listDates,
-  plural,
   shiftTimesLabel,
   stationBattalionLabel,
-  timeAgo,
   uniqueById,
   ymdOfInstant,
 } from '@/app/(app)/board/_lib/format'
 
-// 2026-09-23 12:00 Pacific (PDT, UTC−7)
-const NOW = Date.parse('2026-09-23T19:00:00Z')
-const MIN = 60_000
-
-describe('timeAgo', () => {
-  it('uses short, friendly buckets', () => {
-    expect(timeAgo(new Date(NOW - 20_000).toISOString(), NOW)).toBe('just now')
-    expect(timeAgo(new Date(NOW - 5 * MIN).toISOString(), NOW)).toBe('5 min ago')
-    expect(timeAgo(new Date(NOW - 3 * 60 * MIN).toISOString(), NOW)).toBe('3 hr ago')
-    expect(timeAgo(new Date(NOW - 26 * 60 * MIN).toISOString(), NOW)).toBe('yesterday')
-    expect(timeAgo(new Date(NOW - 3 * 24 * 60 * MIN).toISOString(), NOW)).toBe('3 days ago')
-    expect(timeAgo('2026-09-03T19:00:00Z', NOW)).toBe('on Sep 3')
-  })
-
-  it('is empty for missing or bad input', () => {
-    expect(timeAgo(null, NOW)).toBe('')
-    expect(timeAgo('not a date', NOW)).toBe('')
-  })
-})
+// Relative times, counts, phone links and accept-limit labels are the shared
+// helpers in src/lib/format.ts (tests/unit/lib-format.test.ts).
 
 describe('ymdOfInstant', () => {
   it('gives the Pacific calendar day of an instant', () => {
@@ -72,24 +51,11 @@ describe('shift labels', () => {
     expect(stationBattalionLabel({ station: 101, battalion: 99 })).toBe('Airport Station 1 · Airport Battalion')
   })
 
-  it('explains accept limits relative to the shift’s station', () => {
-    const at19 = { station: 19, battalion: 9, division: 3 }
-    expect(acceptLimitLabel({ ...at19, accept_limit: 'anyone' })).toBeNull()
-    expect(acceptLimitLabel({ ...at19, accept_limit: 'station' })).toBe('Station 19 only')
-    expect(acceptLimitLabel({ ...at19, accept_limit: 'battalion' })).toBe('Battalion 9 only')
-    expect(acceptLimitLabel({ ...at19, accept_limit: 'division' })).toBe('Division 3 only')
-  })
-
   it('lists dates in plain English', () => {
     expect(listDates([])).toBe('')
     expect(listDates(['2026-10-16'])).toBe('Oct 16')
     expect(listDates(['2026-10-16', '2026-10-20', '2026-10-22'])).toBe('Oct 16, Oct 20 and Oct 22')
     expect(listDates(['2026-10-16', '2026-10-20'], 'weekday')).toBe('Fri, Oct 16 and Tue, Oct 20')
-  })
-
-  it('pluralises', () => {
-    expect(plural(1, 'shift')).toBe('1 shift')
-    expect(plural(3, 'shift')).toBe('3 shifts')
   })
 })
 
@@ -108,13 +74,6 @@ describe('list helpers', () => {
 
   it('drops repeated ids (overlapping pages)', () => {
     expect(uniqueById([{ id: 'a' }, { id: 'b' }, { id: 'a' }]).map((r) => r.id)).toEqual(['a', 'b'])
-  })
-
-  it('makes phone numbers dialable', () => {
-    expect(dialable('(415) 555-1234')).toBe('4155551234')
-    expect(dialable('+1 415 555 1234')).toBe('+14155551234')
-    expect(dialable('555')).toBe('')
-    expect(dialable(null)).toBe('')
   })
 })
 

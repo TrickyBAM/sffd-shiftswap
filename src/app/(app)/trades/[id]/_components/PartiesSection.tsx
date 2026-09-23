@@ -51,7 +51,11 @@ export function PartiesSection({ legs, lookup }: PartiesSectionProps) {
             </span>
             <span>
               <span className="block text-xs uppercase tracking-wide text-fg-dim">Working it</span>
-              {viewed.status === 'open' ? 'Nobody yet' : 'Nobody'}
+              {viewed.status === 'open'
+                ? 'Nobody yet'
+                : viewed.status === 'cancelled'
+                  ? `Nobody. It stays with ${nameOrYou(viewed.poster_id, poster.name, me)}.`
+                  : 'Nobody'}
             </span>
           </li>
         )}

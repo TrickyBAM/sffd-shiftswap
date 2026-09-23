@@ -3,8 +3,9 @@
 // entry has is checked; a blank employee ID on the member counts as a mismatch
 // when the roster entry has one.
 
+import { tourLabel } from '@/lib/format'
 import type { Profile, RosterEntry } from '@/lib/types/database'
-import { stationText, tourText } from './format'
+import { stationText } from './format'
 
 export type CompareStatus = 'match' | 'differs'
 
@@ -62,8 +63,8 @@ export function compareRosterToMember(entry: RosterFields, member: MemberFields)
       field: 'tour',
       label: 'Tour',
       status: entry.tour === member.tour ? 'match' : 'differs',
-      roster: tourText(entry.tour),
-      member: tourText(member.tour),
+      roster: tourLabel(entry.tour),
+      member: tourLabel(member.tour),
     })
   }
   if (normText(entry.email)) {

@@ -3,6 +3,8 @@ import {
   availableCount,
   balanceDetail,
   balanceHeadline,
+  boardDayHref,
+  canGiveReturnDate,
   comingUp,
   dayActions,
   dayAriaLabel,
@@ -17,9 +19,13 @@ import {
   postability,
   relativeDay,
   shortName,
+  takeableCounts,
+  toOpenShiftLite,
   tradeHref,
   visibleRange,
   type DayContext,
+  type OpenShiftLite,
+  type TakeContext,
 } from '@/app/(app)/calendar/_components/calendar-model'
 import { computeDay, computeDays } from '@/lib/schedule/effective'
 import { addDays, type Ymd } from '@/lib/sffd/dates'
@@ -229,7 +235,7 @@ describe('postability and day actions', () => {
       { key: 'post', kind: 'post', label: 'Post this shift', href: '/post?date=2026-10-03' },
     ])
     expect(dayActions(day('2026-09-25', { '2026-09-25': 3 }), CTX)).toEqual([
-      { key: 'board', kind: 'board', label: 'See 3 available shifts', href: '/board?date=2026-09-25' },
+      { key: 'board', kind: 'board', label: 'See 3 available shifts', href: '/board?date=2026-09-25&scope=all' },
     ])
     expect(dayActions(day('2026-09-26'), CTX)).toEqual([
       {
@@ -329,5 +335,203 @@ describe('balance copy', () => {
     expect(balanceHeadline({ covered: 2, given: 2, balance: 0 })).toBe("You're even.")
     expect(balanceHeadline({ covered: 0, given: 0, balance: 0 })).toBe('No trades yet.')
     expect(balanceDetail({ covered: 1, given: 3, balance: -2 })).toMatch(/Picking up a shift/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TF-1: giving away only the PM of a tour day leaves me on duty 0800–1600
+// ---------------------------------------------------------------------------
+
+describe('a tour day with only the PM given away', () => {
+  // 10-03 is a tour-2 day; Mike covers the PM (1600–0800).
+  const PM_GIVEN = shift({
+    id: '10000000-0000-4000-8000-000000000010',
+    date: '2026-10-03',
+    shift_type: 'PM',
+    hours: 16,
+    status: 'covered',
+    coverer_id: MIKE,
+    coverer_name: 'Mike Lee',
+  })
+  // 10-06 is a tour-2 day whose PM went to Mike as a SwapMatch (I work his 10-14).
+  const PM_SWAP = shift({
+    id: '10000000-0000-4000-8000-000000000011',
+    date: '2026-10-06',
+    shift_type: 'PM',
+    hours: 16,
+    status: 'covered',
+    coverer_id: MIKE,
+    coverer_name: 'Mike Lee',
+    return_dates: ['2026-10-14'],
+    return_leg_id: '10000000-0000-4000-8000-000000000012',
+  })
+  const PM_SWAP_RETURN = shift({
+    id: '10000000-0000-4000-8000-000000000012',
+    date: '2026-10-14',
+    shift_type: 'PM',
+    hours: 16,
+    poster_id: MIKE,
+    poster_name: 'Mike Lee',
+    status: 'covered',
+    coverer_id: ME,
+    coverer_name: 'Brian Machado',
+    return_leg_of: PM_SWAP.id,
+  })
+  const MINE = [PM_GIVEN, PM_SWAP, PM_SWAP_RETURN]
+  const PM_CTX: DayContext = { ...CTX, lookup: indexShifts(MINE) }
+
+  function pmDay(ymd: Ymd, counts: Record<Ymd, number> = {}, tour: number | null = TOUR, today: Ymd = TODAY) {
+    return computeDay({ ymd, userId: ME, tour, myShifts: MINE, boardCounts: counts, today })
+  }
+
+  it('stays a working day that says who covers the PM', () => {
+    expect(tourWorks(TOUR, '2026-10-06')).toBe(true)
+    const day = pmDay('2026-10-03', { '2026-10-03': 3 })
+    expect(day).toMatchObject({ working: true, tone: 'working', availableCount: 0 })
+    expect(describeDay(day, PM_CTX)).toEqual([
+      { tone: 'working', text: "You're on duty 0800–1600 (Tour 2).", detail: 'PM covered by Mike Lee' },
+    ])
+    const later = pmDay('2026-10-03', {}, TOUR, '2026-10-05')
+    expect(describeDay(later, { ...PM_CTX, today: '2026-10-05' })[0].text).toBe('You were on duty 0800–1600 (Tour 2).')
+  })
+
+  it('explains a PM SwapMatch as well', () => {
+    const lines = describeDay(pmDay('2026-10-06'), PM_CTX)
+    expect(lines.map((l) => l.tone)).toEqual(['working', 'givenAway'])
+    expect(lines[1]).toMatchObject({
+      text: "Mike Lee is covering your PM — SwapMatch: you work Mike's shift on Wed, Oct 14.",
+      detail: 'PM · 1600–0800',
+    })
+  })
+
+  it('keeps the red bar with the outline and never offers posting or open shifts', () => {
+    const day = pmDay('2026-10-03', { '2026-10-03': 3 })
+    const marks = dayMarks(day)
+    expect(marks.bars).toEqual([{ kind: 'working' }])
+    expect(marks.outlined).toBe(true)
+    expect(marks.coveredBy).toBe('M. Lee')
+    expect(dayAriaLabel(day)).toBe('Saturday, October 3, 2026: on duty 0800–1600, PM covered by Mike Lee')
+    expect(availableCount(day)).toBe(0)
+    expect(postability(day, PM_CTX)).toBe('taken')
+    expect(dayActions(day, PM_CTX)).toEqual([
+      {
+        key: `trade-${PM_GIVEN.id}`,
+        kind: 'trade',
+        label: 'View trade with Mike Lee',
+        href: `/trades/${PM_GIVEN.id}`,
+      },
+    ])
+    expect(dayMarks(pmDay('2026-10-06')).bars).toEqual([{ kind: 'working' }, { kind: 'swap' }])
+  })
+
+  it('shows as on duty in Coming up', () => {
+    const days = computeDays({
+      userId: ME,
+      tour: TOUR,
+      myShifts: MINE,
+      today: TODAY,
+      fromYmd: '2026-10-03',
+      toYmd: '2026-10-06',
+    })
+    expect(comingUp(days, PM_CTX, 5)).toEqual([
+      {
+        ymd: '2026-10-03',
+        when: 'Sat, Oct 3',
+        title: 'On duty 0800–1600',
+        detail: 'PM covered by Mike Lee',
+        tone: 'working',
+        outlined: true,
+      },
+      {
+        ymd: '2026-10-06',
+        when: 'Tue, Oct 6',
+        title: 'On duty 0800–1600',
+        detail: 'PM covered by Mike Lee · SwapMatch',
+        tone: 'swap',
+        outlined: true,
+      },
+    ])
+  })
+
+  it('counts as a working day for members without a tour too', () => {
+    const noTour = pmDay('2026-10-03', { '2026-10-03': 2 }, null)
+    expect(noTour.working).toBe(true)
+    expect(describeDay(noTour, { ...PM_CTX, tour: null })[0].text).toBe("You're on duty 0800–1600.")
+    expect(availableCount(noTour)).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// TF-2 / TF-3: the blue counts use the Board's "Only shifts I can take" rules
+// ---------------------------------------------------------------------------
+
+describe('open shifts I could take', () => {
+  function open(id: string, date: Ymd, extra: Partial<OpenShiftLite> = {}): OpenShiftLite {
+    return { id, date, shift_type: '24-Hour', starts_at: `${date}T15:00:00Z`, return_dates: [], ...extra }
+  }
+  // Tour 2 works 09-26, 09-29, 10-03, 10-06; it's off 09-24, 09-25, 09-27, 09-28.
+  const TAKE: TakeContext = { userId: ME, tour: TOUR, myShifts: SHIFTS, now: NOW }
+
+  it('opens the Board on that day across every location', () => {
+    expect(boardDayHref('2026-10-14')).toBe('/board?date=2026-10-14&scope=all')
+  })
+
+  it('keeps only the columns it needs', () => {
+    const row = shift({ id: 'x', date: '2026-10-01', return_dates: ['2026-10-03', 'bad'] })
+    expect(toOpenShiftLite(row)).toEqual({
+      id: 'x',
+      date: '2026-10-01',
+      shift_type: '24-Hour',
+      starts_at: '2026-10-01T15:00:00Z',
+      return_dates: ['2026-10-03'],
+    })
+  })
+
+  it('counts plain posts per day, once each, and drops ones that have started', () => {
+    const counts = takeableCounts(
+      [
+        open('a', '2026-09-27'),
+        open('b', '2026-09-27'),
+        open('b', '2026-09-27'),
+        open('c', '2026-09-28'),
+        // Today's 24-Hour started at 08:00 (it's 10:00); the PM hasn't.
+        open('d', TODAY, { starts_at: '2026-09-23T15:00:00Z' }),
+        open('e', TODAY, { shift_type: 'PM', starts_at: '2026-09-23T23:00:00Z' }),
+      ],
+      TAKE,
+    )
+    expect(counts).toEqual({ '2026-09-27': 2, '2026-09-28': 1, [TODAY]: 1 })
+  })
+
+  it('counts a SwapMatch only when I could give one of its return dates', () => {
+    const counts = takeableCounts(
+      [
+        // 10-06 is a free tour day of mine: I can give it.
+        open('ok', '2026-09-27', { return_dates: ['2026-09-28', '2026-10-06'] }),
+        // 09-28 isn't a tour day (RETURN_NOT_YOUR_DAY).
+        open('notTour', '2026-09-27', { return_dates: ['2026-09-28'] }),
+        // 09-29 has my open post; 09-26 is already given away (SwapMatch with Mike).
+        open('taken', '2026-09-28', { return_dates: ['2026-09-29', '2026-09-26'] }),
+        // Today's 24-Hour has started, so today can't be given back.
+        open('started', '2026-09-28', { return_dates: [TODAY] }),
+      ],
+      TAKE,
+    )
+    expect(counts).toEqual({ '2026-09-27': 1 })
+  })
+
+  it('follows the database rule for each return date', () => {
+    expect(canGiveReturnDate('2026-10-06', '24-Hour', TAKE)).toBe(true)
+    expect(canGiveReturnDate('2026-09-28', '24-Hour', TAKE)).toBe(false)
+    expect(canGiveReturnDate('2026-09-29', '24-Hour', TAKE)).toBe(false)
+    // Today: the PM hasn't started yet, the 24-Hour has.
+    expect(canGiveReturnDate(TODAY, 'PM', TAKE)).toBe(true)
+    expect(canGiveReturnDate(TODAY, '24-Hour', TAKE)).toBe(false)
+    // No tour: any day without a post or pickup of mine.
+    const noTour: TakeContext = { ...TAKE, tour: null }
+    expect(canGiveReturnDate('2026-09-28', '24-Hour', noTour)).toBe(true)
+    expect(canGiveReturnDate('2026-09-24', '24-Hour', noTour)).toBe(false)
+    expect(canGiveReturnDate('2026-09-29', '24-Hour', noTour)).toBe(false)
+    expect(canGiveReturnDate('not-a-date', '24-Hour', noTour)).toBe(false)
   })
 })

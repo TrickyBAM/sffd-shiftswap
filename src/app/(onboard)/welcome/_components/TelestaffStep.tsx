@@ -2,7 +2,7 @@
 
 import { useId, useState } from 'react'
 import { CircleCheck, ScrollText } from 'lucide-react'
-import { FormAlert } from '@/app/(auth)/_components/FormAlert'
+import { FormAlert } from '@/components/forms/FormAlert'
 import { Button } from '@/components/ui/Button'
 import { useToast } from '@/components/ui/Toast'
 import { acknowledgeTelestaff } from '@/lib/api'

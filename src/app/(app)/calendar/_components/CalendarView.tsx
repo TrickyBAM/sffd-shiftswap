@@ -2,12 +2,15 @@
 
 import { useCallback, useMemo, useRef, useState, type TouchEvent } from 'react'
 import Link from 'next/link'
-import { ChevronLeft, ChevronRight, Info } from 'lucide-react'
+import { usePathname, useSearchParams } from 'next/navigation'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import AlertsNudge from '@/components/AlertsNudge'
 import AppHeader from '@/components/AppHeader'
 import { OfflineRibbon } from '@/components/OfflineRibbon'
 import { useProfile } from '@/components/providers/ProfileProvider'
 import { Button, buttonClasses, Card, ErrorState } from '@/components/ui'
 import { useRealtimeRefetch } from '@/hooks/useRealtimeRefetch'
+import { tourLabel } from '@/lib/format'
 import { computeDay, computeDays, computeMonthDays } from '@/lib/schedule/effective'
 import { addDays, formatMonth, monthOf, shiftMonth, type Ymd } from '@/lib/sffd/dates'
 import { stationLabel } from '@/lib/sffd/stations'
@@ -15,22 +18,29 @@ import { BalanceCard } from './BalanceCard'
 import { CalendarLegend } from './CalendarLegend'
 import { ComingUpCard } from './ComingUpCard'
 import { DaySheet } from './DaySheet'
+import type { RefreshScope } from './live-refresh'
 import { MonthGrid, MonthGridSkeleton } from './MonthGrid'
+import { NoTourNote } from './NoTourNote'
 import {
   comingUp,
   indexShifts,
   monthKey,
   parseMonthParam,
   POST_WINDOW_DAYS,
+  takeableCounts,
   type DayContext,
+  type TakeContext,
   type YearMonth,
 } from './calendar-model'
 import { useCalendarData } from './useCalendarData'
 import { useClock } from './useClock'
+import { useLiveRefresh } from './useLiveRefresh'
 
 const MIN_MONTH: YearMonth = { year: 2019, month: 1 }
 const MAX_MONTH: YearMonth = { year: 2100, month: 12 }
 const SWIPE_MIN_PX = 60
+/** Realtime events arriving this close together are one change (ms). */
+const LIVE_DEBOUNCE_MS = 1000
 
 function sameMonth(a: YearMonth, b: YearMonth): boolean {
   return a.year === b.year && a.month === b.month
@@ -40,42 +50,70 @@ function monthIndex({ year, month }: YearMonth): number {
   return year * 12 + month
 }
 
-export interface CalendarViewProps {
-  /** ?month=YYYY-MM from the URL (validated here). */
-  initialMonth: string | null
-}
-
-/** Home screen: my month at a glance, what's coming up and my balance. */
-export function CalendarView({ initialMonth }: CalendarViewProps) {
+/**
+ * Home screen: my month at a glance, what's coming up and my balance.
+ * The month shown is ?month=YYYY-MM (read with useSearchParams, so Back from
+ * a trade returns to it); without it the calendar follows the current month.
+ */
+export function CalendarView() {
   const { profile } = useProfile()
   const { today, now } = useClock()
-  // null = follow the current month (and roll over at midnight on the 1st).
-  const [picked, setPicked] = useState<YearMonth | null>(() => parseMonthParam(initialMonth))
-  const ym = picked ?? monthOf(today)
-  const current = monthOf(today)
+  const pathname = usePathname() ?? '/calendar'
+  const searchParams = useSearchParams()
+  const monthParam = searchParams.get('month')
+  const picked = useMemo(() => parseMonthParam(monthParam), [monthParam])
+  const current = useMemo(() => monthOf(today), [today])
+  const ym = picked ?? current
   const onCurrentMonth = sameMonth(ym, current)
 
   const cal = useCalendarData(profile, ym, today)
   const [statsToken, setStatsToken] = useState(0)
   const [selectedYmd, setSelectedYmd] = useState<Ymd | null>(null)
 
-  const { reload } = cal
+  const { reload, reloadOpen } = cal
   const refreshAll = useCallback(() => {
     reload()
     setStatsToken((t) => t + 1)
   }, [reload])
 
-  // Any change to shifts or requests can change my calendar; refetch (debounced), never trust payloads.
-  useRealtimeRefetch([{ table: 'shifts' }, { table: 'shift_requests' }], refreshAll, {
-    debounceMs: 800,
-    name: 'calendar',
+  // Live updates (NEXT-03), never trusting payloads: a change to my own shifts
+  // or requests reloads everything (and my balance); any other shift change
+  // only reloads the open shifts behind the blue counts. Both go through a
+  // throttle that merges bursts, spaces reloads out and waits while the app
+  // is in the background.
+  const requestLive = useLiveRefresh((scope: RefreshScope) => {
+    if (scope === 'all') refreshAll()
+    else reloadOpen()
   })
+  useRealtimeRefetch([{ table: 'shifts' }], () => requestLive('open'), {
+    debounceMs: LIVE_DEBOUNCE_MS,
+    // Coming back to the app is handled by the "mine" subscription below.
+    refetchOnResume: false,
+    name: 'calendar-open',
+  })
+  useRealtimeRefetch(
+    [
+      { table: 'shifts', filter: `poster_id=eq.${profile.id}` },
+      { table: 'shifts', filter: `coverer_id=eq.${profile.id}` },
+      // Undoing a trade I cover clears coverer_id, but my accepted request changes too.
+      { table: 'shift_requests', filter: `requester_id=eq.${profile.id}` },
+    ],
+    () => requestLive('all'),
+    { debounceMs: LIVE_DEBOUNCE_MS, name: 'calendar-mine' },
+  )
 
-  const goTo = useCallback((next: YearMonth | null) => {
-    setPicked(next)
-    // Keep the month in the URL so Back from a trade returns to it (no server round trip).
-    window.history.replaceState(null, '', next ? `?month=${monthKey(next)}` : window.location.pathname)
-  }, [])
+  const goTo = useCallback(
+    (next: YearMonth | null) => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (next) params.set('month', monthKey(next))
+      else params.delete('month')
+      const qs = params.toString()
+      // Next.js syncs useSearchParams with the native History API: no server
+      // round trip, and Back from a trade comes back to this month.
+      window.history.replaceState(null, '', qs ? `${pathname}?${qs}` : pathname)
+    },
+    [pathname, searchParams],
+  )
 
   const step = useCallback(
     (delta: number) => {
@@ -113,6 +151,14 @@ export function CalendarView({ initialMonth }: CalendarViewProps) {
   const allShifts = useMemo(() => [...lookup.values()], [lookup])
   const ctx: DayContext = useMemo(() => ({ tour: profile.tour, today, now, lookup }), [profile.tour, today, now, lookup])
 
+  // Blue counts: the Board's "Only shifts I can take" rules (TF-2, TF-3).
+  const takeCtx: TakeContext = useMemo(
+    () => ({ userId: profile.id, tour: profile.tour, myShifts: allShifts, now }),
+    [profile.id, profile.tour, allShifts, now],
+  )
+  const gridCounts = useMemo(() => (gridData ? takeableCounts(gridData.open, takeCtx) : {}), [gridData, takeCtx])
+  const counts = useMemo(() => (data ? takeableCounts(data.open, takeCtx) : {}), [data, takeCtx])
+
   const month = useMemo(
     () =>
       gridData
@@ -122,11 +168,11 @@ export function CalendarView({ initialMonth }: CalendarViewProps) {
             year: ym.year,
             month: ym.month,
             myShifts: allShifts,
-            boardCounts: gridData.counts,
+            boardCounts: gridCounts,
             today,
           })
         : null,
-    [gridData, allShifts, profile.id, profile.tour, ym.year, ym.month, today],
+    [gridData, gridCounts, allShifts, profile.id, profile.tour, ym.year, ym.month, today],
   )
 
   const upcoming = useMemo(() => {
@@ -152,19 +198,16 @@ export function CalendarView({ initialMonth }: CalendarViewProps) {
         userId: profile.id,
         tour: profile.tour,
         myShifts: allShifts,
-        boardCounts: data.counts,
+        boardCounts: counts,
         today,
       })
     )
-  }, [selectedYmd, data, month, allShifts, profile.id, profile.tour, today])
+  }, [selectedYmd, data, month, allShifts, counts, profile.id, profile.tour, today])
 
   const title = formatMonth(ym.year, ym.month)
   const prev = shiftMonth(ym.year, ym.month, -1)
   const next = shiftMonth(ym.year, ym.month, 1)
-  const subtitle = [
-    profile.tour != null ? `Tour ${profile.tour}` : 'No tour',
-    profile.station != null ? stationLabel(profile.station) : null,
-  ]
+  const subtitle = [tourLabel(profile.tour), profile.station != null ? stationLabel(profile.station) : null]
     .filter(Boolean)
     .join(' · ')
 
@@ -173,56 +216,49 @@ export function CalendarView({ initialMonth }: CalendarViewProps) {
       <AppHeader title="Calendar" subtitle={subtitle} />
 
       <div className="mx-auto max-w-3xl space-y-4 px-4 pb-6 pt-4 md:px-6">
-        {profile.tour == null ? (
-          <Card className="flex items-start gap-3 border-accent-blue/30 bg-accent-blue/[0.06]" role="note">
-            <Info size={20} aria-hidden="true" className="mt-0.5 shrink-0 text-accent-blue" />
-            <div className="min-w-0 flex-1">
-              <p className="text-[15px] text-fg">Add your tour in Profile to see your regular schedule.</p>
-              <p className="mt-0.5 text-sm text-fg-muted">For now the calendar shows your trades and posts.</p>
-              <Link
-                href="/profile"
-                className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-accent-blue hover:underline"
-              >
-                Go to Profile
-              </Link>
-            </div>
-          </Card>
-        ) : null}
+        {/* Push alerts are the core of trading; iPhone members only get the offer here (UX-03). */}
+        <AlertsNudge />
+
+        {profile.tour == null ? <NoTourNote userId={profile.id} /> : null}
 
         {cal.entry?.offline ? (
           <OfflineRibbon updatedAt={cal.entry.loadedAt} onRetry={refreshAll} retrying={cal.reloading} />
         ) : null}
 
         <Card as="section" padding="none" aria-labelledby="month-title" className="p-2 sm:p-4">
-          <div className="mb-2 flex items-center gap-1 px-1 sm:px-0">
+          {/* The longest name ("SEPTEMBER 2026") fits beside the buttons from 360 px up; on
+              narrower screens the buttons wrap to their own row. The name is never cut off. */}
+          <div className="mb-2 flex flex-wrap items-center gap-x-1 gap-y-1 px-1 sm:px-0">
             <h2
               id="month-title"
               aria-live="polite"
-              className="min-w-0 flex-1 truncate font-display text-3xl leading-none tracking-wide text-fg"
+              className="mr-auto whitespace-nowrap font-display text-[1.375rem] leading-none tracking-wide text-fg min-[400px]:text-[1.75rem] sm:text-3xl"
             >
               {title}
             </h2>
-            <Button variant="secondary" size="sm" onClick={() => goTo(null)} disabled={onCurrentMonth}>
-              Today
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => step(-1)}
-              aria-label={`Previous month, ${formatMonth(prev.year, prev.month)}`}
-              disabled={monthIndex(prev) < monthIndex(MIN_MONTH)}
-            >
-              <ChevronLeft size={22} aria-hidden="true" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => step(1)}
-              aria-label={`Next month, ${formatMonth(next.year, next.month)}`}
-              disabled={monthIndex(next) > monthIndex(MAX_MONTH)}
-            >
-              <ChevronRight size={22} aria-hidden="true" />
-            </Button>
+            <div className="ml-auto flex items-center gap-1">
+              <Button variant="secondary" size="sm" onClick={() => goTo(null)} disabled={onCurrentMonth}>
+                Today
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => step(-1)}
+                aria-label={`Previous month, ${formatMonth(prev.year, prev.month)}`}
+                disabled={monthIndex(prev) < monthIndex(MIN_MONTH)}
+              >
+                <ChevronLeft size={22} aria-hidden="true" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => step(1)}
+                aria-label={`Next month, ${formatMonth(next.year, next.month)}`}
+                disabled={monthIndex(next) > monthIndex(MAX_MONTH)}
+              >
+                <ChevronRight size={22} aria-hidden="true" />
+              </Button>
+            </div>
           </div>
 
           <div onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>

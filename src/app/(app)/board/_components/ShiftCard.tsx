@@ -1,9 +1,10 @@
 import { Clock, MapPin, Repeat2, ShieldCheck } from 'lucide-react'
 import { Avatar, Badge, Card } from '@/components/ui'
+import { acceptLimitLabel, relativeTime } from '@/lib/format'
 import { formatDate } from '@/lib/sffd/dates'
 import { stationLabel } from '@/lib/sffd/stations'
 import type { Shift, ShiftRequest } from '@/lib/types/database'
-import { acceptLimitLabel, shiftTimesLabel, stationBattalionLabel, timeAgo } from '../_lib/format'
+import { shiftTimesLabel, stationBattalionLabel } from '../_lib/format'
 
 const MAX_RETURN_DATES_SHOWN = 3
 
@@ -20,11 +21,11 @@ export interface ShiftCardProps {
 
 /** One open shift on the Board. The whole card opens the request sheet. */
 export function ShiftCard({ shift, myRequest, isMine, nowMs, onOpen }: ShiftCardProps) {
-  const limit = acceptLimitLabel(shift)
+  const limit = acceptLimitLabel(shift.accept_limit, shift.station)
   const returns = shift.return_dates ?? []
   const shownReturns = returns.slice(0, MAX_RETURN_DATES_SHOWN)
   const moreReturns = returns.length - shownReturns.length
-  const posted = timeAgo(shift.created_at, nowMs)
+  const posted = relativeTime(shift.created_at, nowMs, { style: 'inline' })
 
   return (
     <Card

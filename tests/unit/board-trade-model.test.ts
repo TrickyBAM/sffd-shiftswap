@@ -6,7 +6,7 @@ import {
   buildTradeSummary,
   cancelState,
   chatPartners,
-  countBySender,
+  currentReturnLeg,
   defaultChatPartner,
   groupMessagesByDay,
   hasStarted,
@@ -120,9 +120,52 @@ function detail(overrides: Partial<TradeDetail> = {}): TradeDetail {
 
 describe('legs and status', () => {
   it('shows the leg in the URL and links the other one', () => {
-    const d = detail({ shift: covered, returnLeg, requestedId: LEG_ID })
-    expect(legsOf(d)).toEqual({ viewed: returnLeg, other: covered, viewingReturnLeg: true })
-    expect(legsOf({ ...d, requestedId: SHIFT_ID })).toEqual({ viewed: covered, other: returnLeg, viewingReturnLeg: false })
+    const d = detail({ shift: covered, returnLeg, returnLegIsCurrent: true, requestedId: LEG_ID })
+    expect(legsOf(d)).toEqual({ viewed: returnLeg, other: covered, viewingReturnLeg: true, undoneLeg: false })
+    expect(legsOf({ ...d, requestedId: SHIFT_ID })).toEqual({
+      viewed: covered,
+      other: returnLeg,
+      viewingReturnLeg: false,
+      undoneLeg: false,
+    })
+    // Hand-built details without returnLegIsCurrent count the leg as current.
+    expect(legsOf(detail({ shift: covered, returnLeg, requestedId: LEG_ID })).undoneLeg).toBe(false)
+  })
+
+  describe('an old return leg from an undone SwapMatch (TF-6)', () => {
+    // The trade was undone: the leg was cancelled and the original reopened.
+    const oldLeg = { ...returnLeg, status: 'cancelled' as const, coverer_id: null, cancelled_at: '2026-09-23T01:00:00Z' }
+    const reopened = shift({ return_dates: ['2026-10-16'] })
+    // …and then traded again with Ana, with a new return leg.
+    const NEW_LEG_ID = '10000000-0000-4000-8000-000000000003'
+    const retraded = { ...covered, coverer_id: ANA, coverer_name: 'Ana Ruiz', return_leg_id: NEW_LEG_ID }
+
+    it('shows that leg on its own, not the post’s current trade', () => {
+      for (const original of [reopened, retraded]) {
+        const d = detail({ shift: original, returnLeg: oldLeg, returnLegIsCurrent: false, requestedId: LEG_ID })
+        expect(legsOf(d)).toEqual({ viewed: oldLeg, other: null, viewingReturnLeg: true, undoneLeg: true })
+        expect(currentReturnLeg(d)).toBeNull()
+      }
+    })
+
+    it('doesn’t lock the reopened post once the old leg’s date has passed', () => {
+      const pastLeg = { ...oldLeg, date: '2026-09-20', starts_at: '2026-09-20T15:00:00Z' }
+      const d = detail({ shift: reopened, returnLeg: pastLeg, returnLegIsCurrent: false, requestedId: LEG_ID })
+      expect(tradeStarted(d, NOW)).toBe(false)
+      // Even a leg marked current only counts while it is a live (covered) leg.
+      expect(tradeStarted({ ...d, returnLegIsCurrent: true }, NOW)).toBe(false)
+    })
+
+    it('leaves it out of the paperwork summary', () => {
+      const lookup: PeopleLookup = {
+        me: BRIAN,
+        myProfile: { full_name: 'Brian Machado', rank: 'Firefighter', station: 19 },
+        contacts: [],
+        requests: [],
+      }
+      const d = detail({ shift: covered, returnLeg: { ...returnLeg }, returnLegIsCurrent: false, requestedId: SHIFT_ID })
+      expect(buildTradeSummary(d, lookup)).not.toContain('SwapMatch return')
+    })
   })
 
   it('badges Open / Covered / Cancelled / Started', () => {
@@ -137,6 +180,7 @@ describe('legs and status', () => {
     expect(tradeStarted(d, NOW)).toBe(false)
     expect(hasStarted(returnLeg, Date.parse('2026-10-15T00:00:00Z'))).toBe(false)
     expect(tradeStarted({ shift: covered, returnLeg: { ...returnLeg, starts_at: '2026-09-01T15:00:00Z' } }, NOW)).toBe(true)
+    expect(tradeStarted({ shift: { ...covered, starts_at: '2026-09-01T15:00:00Z' }, returnLeg }, NOW)).toBe(true)
   })
 })
 
@@ -240,7 +284,6 @@ describe('chat threads', () => {
       ['2026-09-23', ['c']],
     ])
     expect(unreadFrom(messages, BRIAN)).toEqual(['a'])
-    expect(countBySender([{ sender_id: MIKE }, { sender_id: ANA }, { sender_id: MIKE }])).toEqual({ [MIKE]: 2, [ANA]: 1 })
   })
 })
 

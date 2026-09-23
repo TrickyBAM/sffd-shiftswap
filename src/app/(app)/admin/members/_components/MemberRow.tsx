@@ -2,8 +2,11 @@
 
 import { ChevronRight } from 'lucide-react'
 import { Avatar } from '@/components/ui'
+import { tourLabel } from '@/lib/format'
 import type { Profile } from '@/lib/types/database'
-import { stationText, tourText } from '../../_lib/format'
+import { stationText } from '../../_lib/format'
+import { isRemoved } from '../_lib/query'
+import { isRemovedLoginEmail } from '../_lib/remove'
 import { AdminBadge, MemberStatusBadge } from './MemberBadges'
 
 export interface MemberRowProps {
@@ -13,11 +16,16 @@ export interface MemberRowProps {
 
 /** One member in the list; tapping opens their sheet. */
 export function MemberRow({ member, onOpen }: MemberRowProps) {
-  const name = member.full_name || member.email || 'New member'
+  const removed = isRemoved(member)
+  const email = isRemovedLoginEmail(member.email) ? '' : member.email
+  const name = member.full_name || email || 'New member'
   const details =
     member.status === 'onboarding' && !member.rank
       ? 'Hasn’t finished signing up'
-      : `${member.rank ?? 'No rank'} · ${stationText(member.station)} · ${tourText(member.tour)}`
+      : `${member.rank ?? 'No rank'} · ${stationText(member.station)} · ${tourLabel(member.tour)}`
+  const contact = removed
+    ? 'Contact details erased'
+    : [email, member.phone].filter(Boolean).join(' · ') || 'No contact details'
 
   return (
     <li>
@@ -30,13 +38,11 @@ export function MemberRow({ member, onOpen }: MemberRowProps) {
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="truncate font-semibold text-fg">{name}</span>
-            {member.status !== 'approved' ? <MemberStatusBadge status={member.status} /> : null}
+            {member.status !== 'approved' ? <MemberStatusBadge member={member} /> : null}
             <AdminBadge role={member.role} />
           </span>
           <span className="mt-0.5 block truncate text-sm text-fg-muted">{details}</span>
-          <span className="block truncate text-xs text-fg-dim">
-            {[member.email, member.phone].filter(Boolean).join(' · ') || 'No contact details'}
-          </span>
+          <span className="block truncate text-xs text-fg-dim">{contact}</span>
         </span>
         <ChevronRight size={18} aria-hidden="true" className="shrink-0 text-fg-dim" />
       </button>

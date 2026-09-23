@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { AlertTriangle, CalendarX, Send } from 'lucide-react'
+import { FormAlert } from '@/components/forms/FormAlert'
 import { Button, buttonClasses, Card, CardHeader, EmptyState, Field, Textarea, useToast } from '@/components/ui'
 import { postShift } from '@/lib/api'
 import { toAppError, type AppErrorCode } from '@/lib/errors'
@@ -267,14 +268,17 @@ export function PostForm({ ctx, me, initialDate, onScheduleStale }: PostFormProp
       <PostSummary rows={summaryRows(draft, me.rank)} />
 
       {serverError?.field === 'form' ? (
-        <div role="alert" className="rounded-2xl border border-sffd-red/30 bg-sffd-red/[0.08] px-4 py-3">
-          <p className="text-[15px] text-fg">{serverError.message}</p>
-          {serverError.code === 'ACK_REQUIRED' ? (
-            <Link href="/welcome" className="mt-1 inline-flex min-h-11 items-center font-semibold text-accent-blue hover:underline">
-              Read the TeleStaff notice
-            </Link>
-          ) : null}
-        </div>
+        <FormAlert
+          action={
+            serverError.code === 'ACK_REQUIRED' ? (
+              <Link href="/welcome" className="inline-flex min-h-11 items-center font-semibold text-accent-blue hover:underline">
+                Read the TeleStaff notice
+              </Link>
+            ) : undefined
+          }
+        >
+          {serverError.message}
+        </FormAlert>
       ) : null}
 
       <div className="space-y-2">

@@ -3,7 +3,8 @@
 import { Pencil } from 'lucide-react'
 import { Avatar, Badge, Button, Card } from '@/components/ui'
 import { useProfile } from '@/components/providers/ProfileProvider'
-import { locationLabels, tourLabel } from './profile-model'
+import { tourLabel } from '@/lib/format'
+import { locationLabels } from './profile-model'
 
 /** Who I am: name, rank, station / battalion / division and tour. */
 export function IdentityCard({ onEdit }: { onEdit: () => void }) {

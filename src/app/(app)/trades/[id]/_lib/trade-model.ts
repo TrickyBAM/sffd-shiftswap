@@ -21,9 +21,23 @@ export function hasStarted(shift: Pick<Shift, 'starts_at'>, nowMs: number): bool
   return Number.isFinite(t) && t <= nowMs
 }
 
-/** True when either leg of the trade has started (nothing can be cancelled by members then). */
-export function tradeStarted(detail: Pick<TradeDetail, 'shift' | 'returnLeg'>, nowMs: number): boolean {
-  return hasStarted(detail.shift, nowMs) || (detail.returnLeg != null && hasStarted(detail.returnLeg, nowMs))
+/**
+ * The SwapMatch return leg of the post's current trade, or null. An old leg
+ * from a trade that was undone (getTrade's returnLegIsCurrent false) is not
+ * part of what the post is doing now.
+ */
+export function currentReturnLeg(detail: Pick<TradeDetail, 'returnLeg' | 'returnLegIsCurrent'>): Shift | null {
+  return detail.returnLeg && detail.returnLegIsCurrent !== false ? detail.returnLeg : null
+}
+
+/**
+ * True when the trade has started (nothing can be cancelled or requested by
+ * members then): the original shift has, or a live (covered) return leg has.
+ * A cancelled return leg, or one from an undone trade, doesn't lock the post.
+ */
+export function tradeStarted(detail: Pick<TradeDetail, 'shift' | 'returnLeg' | 'returnLegIsCurrent'>, nowMs: number): boolean {
+  const leg = currentReturnLeg(detail)
+  return hasStarted(detail.shift, nowMs) || (leg != null && leg.status === 'covered' && hasStarted(leg, nowMs))
 }
 
 // ---------------------------------------------------------------------------
@@ -37,12 +51,21 @@ export interface Legs {
   other: Shift | null
   /** True when the URL points at the SwapMatch return leg. */
   viewingReturnLeg: boolean
+  /**
+   * True when the URL points at the return leg of a SwapMatch that was undone:
+   * the post has been reopened (and maybe traded again) since, so the page
+   * shows that old leg on its own instead of the post's current trade.
+   */
+  undoneLeg: boolean
 }
 
 export function legsOf(detail: TradeDetail): Legs {
   const { shift, returnLeg, requestedId } = detail
-  if (returnLeg && requestedId === returnLeg.id) return { viewed: returnLeg, other: shift, viewingReturnLeg: true }
-  return { viewed: shift, other: returnLeg, viewingReturnLeg: false }
+  if (returnLeg && requestedId === returnLeg.id) {
+    const current = detail.returnLegIsCurrent !== false
+    return { viewed: returnLeg, other: current ? shift : null, viewingReturnLeg: true, undoneLeg: !current }
+  }
+  return { viewed: shift, other: currentReturnLeg(detail), viewingReturnLeg: false, undoneLeg: false }
 }
 
 /** True for a SwapMatch: an offer with return dates, or a confirmed pair of legs. */
@@ -216,13 +239,6 @@ export function unreadFrom(messages: readonly Message[], me: string): string[] {
   return messages.filter((m) => m.recipient_id === me && !m.read_at).map((m) => m.id)
 }
 
-/** Unread counts per sender, from rows of messages sent to me. */
-export function countBySender(rows: readonly Pick<Message, 'sender_id'>[]): Record<string, number> {
-  const out: Record<string, number> = {}
-  for (const { sender_id } of rows) out[sender_id] = (out[sender_id] ?? 0) + 1
-  return out
-}
-
 // ---------------------------------------------------------------------------
 // People
 // ---------------------------------------------------------------------------
@@ -288,8 +304,12 @@ export const PAPERWORK_REMINDER =
  * original leg is covered. Always describes the original leg first and the
  * SwapMatch return leg (if any) second, whichever leg the page shows.
  */
-export function buildTradeSummary(detail: Pick<TradeDetail, 'shift' | 'returnLeg' | 'requests'>, lookup: PeopleLookup): string | null {
-  const { shift, returnLeg } = detail
+export function buildTradeSummary(
+  detail: Pick<TradeDetail, 'shift' | 'returnLeg' | 'returnLegIsCurrent' | 'requests'>,
+  lookup: PeopleLookup,
+): string | null {
+  const { shift } = detail
+  const returnLeg = currentReturnLeg(detail)
   if (shift.status !== 'covered' || !shift.coverer_id) return null
 
   const poster = personInfo(shift.poster_id, shift.poster_name, shift.rank, lookup)

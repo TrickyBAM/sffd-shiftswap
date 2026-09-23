@@ -3,21 +3,24 @@ import { describe, expect, it } from 'vitest'
 import type { Shift } from '@/lib/types/database'
 import {
   balanceSentence,
+  calendarPlatform,
   clampScore,
   coversInRange,
+  CURRENT_PASSWORD_REQUIRED_MESSAGE,
   detailsSchema,
   formatSigned,
-  isValidPhone,
+  isWrongCurrentPassword,
   locationLabels,
   monthRange,
+  needsFreshSignIn,
   notifyScopeDescription,
   notifyScopeLabel,
-  passwordSchema,
+  profilePasswordSchema,
   reciprocity,
-  tourLabel,
   trustHeadline,
   trustMessage,
 } from '@/app/(app)/profile/_components/profile-model'
+import { PHONE_INVALID_MESSAGE } from '@/lib/validation'
 
 const ME = '00000000-0000-4000-8000-000000000001'
 const ANA = '00000000-0000-4000-8000-000000000002'
@@ -60,13 +63,7 @@ function shift(overrides: Partial<Shift> = {}): Shift {
 }
 
 describe('identity labels', () => {
-  it('labels tours', () => {
-    expect(tourLabel(12)).toBe('Tour 12')
-    expect(tourLabel(null)).toBe('No tour')
-    expect(tourLabel(undefined)).toBe('No tour')
-    expect(tourLabel(40)).toBe('No tour')
-  })
-
+  // Tour labels come from tourLabel() in src/lib/format.ts (lib-format.test.ts).
   it('labels station, battalion and division', () => {
     expect(locationLabels(19)).toEqual({ station: 'Station 19', battalion: 'Battalion 9', division: 'Division 3' })
     expect(locationLabels(101)).toEqual({
@@ -105,8 +102,9 @@ describe('stats', () => {
 
   it('describes the balance', () => {
     expect(balanceSentence({ covered: 0, given: 0 })).toMatch(/No trades yet/)
-    expect(balanceSentence({ covered: 3, given: 1 })).toBe("You've covered 2 more shifts than you've given away.")
-    expect(balanceSentence({ covered: 1, given: 2 })).toBe("You've given away 1 more shift than you've covered.")
+    // The same words as the stat tiles (UX-11): Covered, Given.
+    expect(balanceSentence({ covered: 3, given: 1 })).toBe("You've covered 2 more shifts than you've given.")
+    expect(balanceSentence({ covered: 1, given: 2 })).toBe("You've given 1 more shift than you've covered.")
     expect(balanceSentence({ covered: 2, given: 2 })).toMatch(/You're even/)
   })
 
@@ -174,13 +172,18 @@ describe('month covers', () => {
 })
 
 describe('forms', () => {
-  it('checks phone numbers like the database does', () => {
-    expect(isValidPhone('415-555-0123')).toBe(true)
-    expect(isValidPhone('(415) 555 0123')).toBe(true)
-    expect(isValidPhone('+1 415 555 0123')).toBe(true)
-    expect(isValidPhone('555-12')).toBe(false)
-    expect(isValidPhone('call me')).toBe(false)
-    expect(isValidPhone('------------')).toBe(false)
+  it('uses the shared phone rule (7+ digits, like the admin editor)', () => {
+    const phone = (value: string) =>
+      detailsSchema.safeParse({ phone: value, station: 19, tour: null, notifyScope: 'battalion' })
+    expect(phone('415-555-0123').success).toBe(true)
+    expect(phone('(415) 555 0123').success).toBe(true)
+    expect(phone('+1 415 555 0123').success).toBe(true)
+    // 8 characters but only 6 digits: the database would take it, calls wouldn't work (CC-6).
+    const short = phone('555 12 3')
+    expect(short.success).toBe(false)
+    expect(short.error?.issues[0]?.message).toBe(PHONE_INVALID_MESSAGE)
+    expect(phone('call me').success).toBe(false)
+    expect(phone('------------').success).toBe(false)
   })
 
   it('validates the details form', () => {
@@ -194,11 +197,44 @@ describe('forms', () => {
     expect(paths).toEqual(['phone', 'station', 'tour'])
   })
 
-  it('validates a new password and its confirmation', () => {
-    expect(passwordSchema.safeParse({ password: 'longenough', confirmPassword: 'longenough' }).success).toBe(true)
-    const short = passwordSchema.safeParse({ password: 'short', confirmPassword: 'short' })
+  it('asks for the current password before a new one (SEC-1)', () => {
+    const ok = { currentPassword: 'old-secret', password: 'longenough', confirmPassword: 'longenough' }
+    expect(profilePasswordSchema.safeParse(ok).success).toBe(true)
+
+    const noCurrent = profilePasswordSchema.safeParse({ ...ok, currentPassword: '' })
+    expect(noCurrent.error?.issues.map((i) => [i.path.join('.'), i.message])).toEqual([
+      ['currentPassword', CURRENT_PASSWORD_REQUIRED_MESSAGE],
+    ])
+
+    const short = profilePasswordSchema.safeParse({ ...ok, password: 'short', confirmPassword: 'short' })
     expect(short.error?.issues[0]?.message).toBe('Use at least 8 characters.')
-    const mismatch = passwordSchema.safeParse({ password: 'longenough', confirmPassword: 'longenougH' })
+    const tooLong = profilePasswordSchema.safeParse({ ...ok, password: 'x'.repeat(73), confirmPassword: 'x'.repeat(73) })
+    expect(tooLong.success).toBe(false)
+    const mismatch = profilePasswordSchema.safeParse({ ...ok, confirmPassword: 'longenougH' })
     expect(mismatch.error?.issues[0]?.path).toEqual(['confirmPassword'])
+  })
+
+  it('tells a wrong current password apart from other sign-in failures', () => {
+    expect(isWrongCurrentPassword({ code: 'invalid_credentials', status: 400 })).toBe(true)
+    expect(isWrongCurrentPassword({ code: 'over_request_rate_limit', status: 429 })).toBe(false)
+    expect(isWrongCurrentPassword(new TypeError('Failed to fetch'))).toBe(false)
+    expect(isWrongCurrentPassword(null)).toBe(false)
+    expect(needsFreshSignIn({ code: 'reauthentication_needed' })).toBe(true)
+    expect(needsFreshSignIn({ code: 'same_password' })).toBe(false)
+  })
+})
+
+describe('calendar feed (UX-15)', () => {
+  it('leads with the webcal link only on Apple devices', () => {
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+    const ipad = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15'
+    const android = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Mobile Safari/537.36'
+    const windows = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36'
+    expect(calendarPlatform(iphone)).toBe('apple')
+    expect(calendarPlatform(ipad)).toBe('apple')
+    expect(calendarPlatform(android)).toBe('android')
+    expect(calendarPlatform(windows)).toBe('other')
+    expect(calendarPlatform('')).toBe('other')
+    expect(calendarPlatform(undefined)).toBe('other')
   })
 })

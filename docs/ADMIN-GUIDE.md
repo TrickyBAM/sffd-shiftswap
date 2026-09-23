@@ -1,18 +1,26 @@
 # ShiftSwap Admin Guide
 
 This guide is for ShiftSwap admins: approving people, keeping the roster up to
-date, helping members who are locked out, and handling problem trades.
+date, helping members who are locked out, removing accounts when someone asks,
+and handling problem trades. Button and screen names in **bold** are exactly
+what you see in the app.
 
 **Opening the admin area:** sign in, then tap the **shield icon** at the top
-right of any screen (only admins see it). The admin area has five tabs:
+right of any screen (only admins see it), or go to **Profile ▸ Admin tools**.
+The admin area has five tabs:
 
 | Tab | What it's for |
 |---|---|
 | **Approvals** | People waiting to be let in, and who joined recently |
-| **Members** | Everyone who has signed up: edit details, suspend, make admin, reset password |
+| **Members** | Everyone who has signed up: edit details, suspend, reactivate, make admin, reset password, remove an account |
 | **Roster** | The department list that new sign-ups are matched against |
-| **Trades** | Every post and trade: cancel posts, void trades |
+| **Trades** | Every post and trade: take down posts, void trades, export to CSV |
 | **Activity** | A log of everything important that happened, and who did it |
+
+Under the tabs, a row of counts shows **Waiting** (sign-ups waiting for you,
+highlighted in red when there are any), **Members**, **Open posts**, **Trades
+this month** and **On roster**. Tap a count to jump to it. On a small phone the
+tabs and counts scroll sideways.
 
 Every admin action is recorded in the activity log with your name.
 
@@ -22,8 +30,8 @@ Every admin action is recorded in the activity log with your name.
 
 **How people get in:**
 
-1. They sign up with their email and a password, then fill in their name, phone,
-   rank, station, tour and (ideally) employee ID.
+1. They create an account with their name, email, mobile phone and a password,
+   then fill in their rank, station, tour and (ideally) employee ID.
 2. ShiftSwap compares them with the roster. If they clearly match one roster
    entry, they are **approved automatically** and you get an alert saying so.
 3. If they don't match, they wait on a "pending" screen and **you get an alert**
@@ -39,20 +47,25 @@ attempts. After that, you decide.
 
 **To approve or reject:**
 
-1. Open **Approvals**. Each card shows what the person entered and, when there
-   is one, the closest roster entry and what was different (for example
-   "Roster: John Smith, Station 19, tour differs").
-2. If you're not sure it's really them, call or text them from the card.
-3. Tap **Approve**. You can link them to their roster entry, or approve without a
-   roster match (for someone new who isn't on the list yet).
-4. Or tap **Reject** and give a short reason. They see the reason on their
-   screen. You can approve them later from **Members** if it was a mistake.
+1. Open **Approvals**. Under **Waiting for approval**, each card shows what the
+   person entered and a **Roster check** with the closest roster entry and what
+   was different (for example "Roster: John Smith, Station 19, tour differs").
+2. If you're not sure it's really them, tap **Call**, **Text** or **Email** on
+   the card.
+3. Tap **Approve**. Pick their roster entry (the likely one is marked **Closest
+   match**; use **Search the roster** if it isn't listed), or choose **Don't link
+   a roster entry** for someone new who isn't on the list yet. Then tap
+   **Approve**.
+4. Or tap **Reject**, give a short reason and tap **Reject**. They see the
+   reason on their screen. You can still approve them later from **Members**.
 
 The approved member gets an alert and can start using ShiftSwap right away,
 after they read and accept the TeleStaff notice once.
 
-**Check the auto-approvals:** now and then, look at "recently joined" on the
-Approvals tab to make sure everyone who got in automatically belongs there.
+**Check the auto-approvals:** now and then, look at **Recently joined** on the
+Approvals tab (everyone approved in the last 14 days, marked **On roster** or
+**Not on roster**, and **Auto-approved** or who approved them) to make sure
+everyone who got in automatically belongs there.
 
 ---
 
@@ -65,7 +78,7 @@ admins can see it.
 
 Use a spreadsheet (Excel, Numbers or Google Sheets) and save or download it as
 **CSV**. You can also copy the cells and paste them into the box on the Roster
-tab.
+tab. **Download template** gives you an empty file with the right headings.
 
 The **first row must be column headings**. Only the names are required. Add as
 many of the other columns as you have: the more details, the better the
@@ -83,9 +96,9 @@ automatic matching.
 | `Email` | no | `jsmith@example.com` | |
 | `Phone` | no | `415-555-0100` | |
 
-Other spellings of the headings are understood too (for example `Emp #`,
-`Stn`, `Cell`). Commas, tabs or semicolons can separate the columns. Up to 5,000
-rows per upload.
+Other spellings of the headings are understood too (for example `first_name`,
+`Emp #`, `Stn`, `Cell`). Commas, tabs or semicolons can separate the columns. Up
+to 5,000 rows per upload.
 
 Example:
 
@@ -97,25 +110,30 @@ Maria,Lopez,23456,Lieutenant,Airport 2,,mlopez@example.com,
 
 ### Uploading
 
-1. Open **Roster** and choose your CSV file (or paste the cells into the box).
+1. Open **Roster**. Under **Upload the roster**, tap **Choose a CSV file**, or
+   paste the cells into **Or paste it here**.
 2. ShiftSwap checks every row **before anything is saved** and shows a
-   preview: the rows it will import, plus any rows with problems and the line
+   preview: the rows it will import, plus any lines with problems and the line
    number of each (for example a station that doesn't exist, or the same
    person listed twice). Fix those in your spreadsheet and try again, or go
    ahead without them.
-3. Choose how to import:
-   - **Add and update** (normal): new people are added and existing entries
+3. Decide about **Replace the current roster** (a tick box):
+   - **Leave it off** (normal): new people are added and existing entries
      (same name and employee ID) are updated.
-   - **Replace**: first deletes every roster entry that nobody has claimed yet,
-     then imports. Use this when you have a complete new list. Entries already
-     linked to a member are never deleted.
-4. Confirm. You'll see how many rows were added, updated and skipped.
+   - **Tick it** when you have a complete new list: every roster entry that
+     nobody has claimed yet is removed first, then the file is imported.
+     Entries already linked to a member are never removed.
+4. Tap **Import N people** (with **Replace the current roster** ticked, confirm
+   with **Replace and import N people**). You'll see how many were added,
+   updated, already up to date and not imported.
 
 Uploading a roster doesn't approve anyone who is already waiting. Approve them
 from **Approvals**. From now on, new sign-ups are matched against the new list.
 
-You can search the roster and delete single entries on the Roster tab. An entry
-shows who claimed it, if anyone.
+Below the upload box you can search the roster, **Show** everyone, only people
+**Not signed up yet** or only entries **Linked to a member**, and remove a
+single entry with its trash-can button. An entry shows who claimed it, if
+anyone.
 
 ---
 
@@ -126,10 +144,11 @@ are locked out ask an admin.
 
 1. **Make sure it's really them.** Call them back on the number in their
    profile, or check with them in person.
-2. Open **Members**, find them (search by name) and tap **Reset password**.
+2. Open **Members**, search for them and tap their name. Tap **Reset password**,
+   then **Reset password** again to confirm.
 3. ShiftSwap shows a **temporary password** once, something like
-   `Harbor-Maple-4821`. Read it to them or text it. It is not stored anywhere,
-   so if you lose it, reset again.
+   `Harbor-Maple-4821`. Tap **Copy**, or **Text it** to send it from your phone.
+   It is not stored anywhere, so if you lose it, reset again.
 4. They sign in with it and are asked to choose a new password straight away.
 
 You can't reset your own password this way. Use **Change password** on your
@@ -139,23 +158,70 @@ Profile page, or ask another admin.
 
 ## 4. Editing, suspending and reactivating members
 
-**Edit details:** in **Members**, open a member to fix their name, rank,
-station, tour, phone or employee ID. Members can change their own phone,
-station and tour, but name, rank and employee ID are admin-only.
+Open **Members** and tap a member to see their details and the **Manage**
+buttons. The **Status** filter shows **Everyone**, **Active**, **Waiting for
+approval**, **Suspended**, **Turned down**, **Still signing up** or **Removed**.
 
-**Suspend:** tap **Suspend** and give a reason. The member can no longer use
-ShiftSwap (they see the reason). When you suspend someone:
+**Edit details:** fix their name, rank, station, tour, phone or employee ID,
+then tap **Save changes**. The phone number needs an area code (at least 7
+digits), the same rule as the member's own form. Members can change their own
+phone, station and tour, but name, rank and employee ID are admin-only.
 
-- Their **upcoming open posts are cancelled** and their **pending requests are
+**Suspend:** tap **Suspend**, give a reason and confirm. The member can no
+longer use ShiftSwap (they see the reason in an alert). When you suspend
+someone:
+
+- Their **upcoming open posts are taken down** and their **pending requests are
   closed**. Everyone affected is told.
 - Their **confirmed trades stay**. If a trade shouldn't happen, void it in
-  **Trades** (section 6).
+  **Trades** (section 7).
 
 **Reactivate:** open the member and tap **Reactivate** to let them back in.
+Posts taken down when they were suspended don't come back.
 
 ---
 
-## 5. Making another admin
+## 5. Removing an account (when a member asks)
+
+The privacy page promises members that an admin removes their account if they
+ask. Suspending isn't enough, because it keeps their phone number and email.
+**Remove member** is the tool for this.
+
+1. **Make sure the request really comes from them**, for example by calling them
+   back on the number in their profile.
+2. Open **Members**, tap their name and tap **Remove member**.
+3. The box explains what happens. Type a short reason (it's kept in the
+   activity log), for example "Retired. Asked by text on Sep 23." Then tap
+   **Remove member**.
+
+What removal does:
+
+- **Erased:** their phone number, email address and employee ID, their link to
+  the roster (the roster entry is free for someone else), their alerts and alert
+  subscriptions. Their calendar link stops working.
+- **Closed:** they can't sign in anymore. Their open posts come down and their
+  pending requests close, and the people affected are told.
+- **Kept:** their name on the account and on past trades and messages, so other
+  members' history and balances still add up.
+- **Their confirmed trades that haven't happened yet stay.** The message after
+  removing tells you how many. Void them in **Trades** if they won't happen.
+
+Afterwards the account shows as **Removed** and leaves the normal member list.
+Find it with **Status ▸ Removed**. A removal can't be undone in the app. If the
+person comes back later, they create an account again with their email; it
+starts as a new account.
+
+You can't remove your own account or the last admin (make someone else an admin
+first). If a message says **Their login needs another try**, open the member and
+tap **Finish removal**. If that keeps failing, tell a developer (see
+`HANDOFF.md`).
+
+Don't delete members in the Supabase dashboard. It fails for anyone who ever
+posted, requested or chatted, and it skips the clean-up above.
+
+---
+
+## 6. Making another admin
 
 1. Open **Members**, find the person, and tap **Make admin**.
 2. They get the shield icon and full admin access the next time a page loads.
@@ -168,18 +234,23 @@ admin, so you can't remove the last one. Make someone else an admin first.
 
 ---
 
-## 6. Cancelling posts and voiding trades
+## 7. Taking down posts and voiding trades
 
-Open **Trades** to see every post and trade. Search or filter by date, station
-or member.
+Open **Trades** to see every post and trade. Use **Show** to pick **Confirmed,
+upcoming** (the default), **Confirmed, already worked**, **Open posts**,
+**Cancelled** or **Everything**, and narrow it down by **Member** name,
+**From**/**To** dates, battalion or station. **Details** opens the trade's own
+page. **Export CSV** saves everything that matches the filters (up to 5,000
+rows) as a spreadsheet file.
 
-- **Cancel a post** (an open shift nobody has been confirmed for yet): tap
-  **Cancel post** and give a reason. The poster and anyone who asked for it are
-  told.
-- **Void a trade** (a confirmed trade): tap **Void trade** and give a reason.
-  Both members are told. This works even after the shift has started (members
-  can't undo a started trade themselves). For a SwapMatch, both days are undone
-  together.
+- **Take down a post** (an open shift nobody has been confirmed for yet): tap
+  **Take down post**, give a reason (the poster sees it) and confirm. The poster
+  and anyone who asked for it are told.
+- **Void a trade** (a confirmed trade): tap **Void trade**, give a reason (both
+  members see it) and confirm. Both members are told. This works even after the
+  shift has started (members can't undo a started trade themselves). For a
+  SwapMatch, both days are undone together. If the shift hasn't started, it goes
+  back on the board as an open post; if it has, it's marked cancelled.
 
 ShiftSwap won't void a trade if undoing it would put someone on two shifts the
 same day (for example, they picked up another shift on the day they would get
@@ -190,12 +261,13 @@ already entered there, it has to be fixed there too.
 
 ---
 
-## 7. The activity log
+## 8. The activity log
 
 **Activity** lists important events, newest first: sign-ups and roster matches,
-approvals and rejections, suspensions, role changes, password resets, roster
-uploads, posts, confirmed trades, cancellations and voids. Each entry shows who
-did it and when.
+approvals and rejections, suspensions, account removals, role changes, password
+resets, roster uploads, posts, confirmed trades, cancellations and voids. Each
+entry shows who did it and when. Use **Show** to see one kind of event, and the
+refresh button to load the newest.
 
 Use it to answer questions like "who approved this person?", "when was this
 trade cancelled, and by whom?" or "why is this person pending?" (the roster note
@@ -203,7 +275,7 @@ explains what didn't match).
 
 ---
 
-## 8. If ShiftSwap is down
+## 9. If ShiftSwap is down
 
 First, remind everyone that **TeleStaff and the phone still work**. ShiftSwap
 is only a coordination tool.
@@ -233,7 +305,7 @@ is only a coordination tool.
    when it started.
 
 **Alerts not arriving, but everything else works:** ask the member to turn
-alerts off and on again in their Profile. On iPhone, alerts only work when
-ShiftSwap is installed on the home screen. If nobody gets alerts, the push
-settings may be missing (see "Push alerts" in `docs/DEPLOY.md`). Alerts always
-appear inside the app either way.
+**Alerts on this device** off and on again in their Profile. On iPhone, alerts
+only work when ShiftSwap is installed on the home screen. If nobody gets alerts,
+the push settings may be missing (see "Push alerts" in `docs/DEPLOY.md`). Alerts
+always appear inside the app either way.

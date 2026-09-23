@@ -1,34 +1,53 @@
 import { describe, expect, it } from 'vitest'
 import {
-  changePasswordSchema,
-  cleanName,
-  isValidPhone,
+  fullNameSchema,
   loginSchema,
   onboardingSchema,
   signupFormSchema,
   signupRequestSchema,
 } from '@/app/(auth)/_lib/validation'
+import {
+  fullNameError,
+  PASSWORD_MAX,
+  PASSWORD_MISMATCH_MESSAGE,
+  PASSWORD_TOO_LONG_MESSAGE,
+  PASSWORD_TOO_SHORT_MESSAGE,
+  PHONE_INVALID_MESSAGE,
+  PHONE_REQUIRED_MESSAGE,
+} from '@/lib/validation'
 
 function firstError(result: { success: boolean; error?: { issues: Array<{ path: PropertyKey[]; message: string }> } }) {
   const issue = result.error?.issues[0]
   return issue ? { path: issue.path.join('.'), message: issue.message } : null
 }
 
-describe('names and phones (mirror the database checks)', () => {
-  it('collapses whitespace in names', () => {
-    expect(cleanName('  Mary   Ann  Smith ')).toBe('Mary Ann Smith')
+// The field rules come from '@/lib/validation' (tested in lib-validation);
+// these check the auth forms use them rather than their own copies (CC-6).
+describe('shared field rules', () => {
+  it('collapses whitespace in names and uses the shared name messages', () => {
+    expect(fullNameSchema.parse('  Mary   Ann  Smith ')).toBe('Mary Ann Smith')
+    expect(firstError(fullNameSchema.safeParse(' P '))?.message).toBe(fullNameError('P'))
+    expect(firstError(fullNameSchema.safeParse('x'.repeat(81)))?.message).toBe(fullNameError('x'.repeat(81)))
   })
 
   it('accepts phone formats the database accepts', () => {
+    const valid = { fullName: 'Pat Firefighter', rank: 'Captain', station: 19, tour: 7, employeeId: '' }
     for (const phone of ['415-555-0123', '(415) 555 0123', '+1 415 555 0123', '4155550123']) {
-      expect(isValidPhone(phone), phone).toBe(true)
+      expect(onboardingSchema.safeParse({ ...valid, phone }).success, phone).toBe(true)
     }
   })
 
-  it('rejects phones the database would reject or that have too few digits', () => {
-    for (const phone of ['', '555', '415.555.0123', 'call me', '+-() -+()', '1'.repeat(21)]) {
-      expect(isValidPhone(phone), phone).toBe(false)
+  it('rejects the phones every other form rejects, including too few digits', () => {
+    const valid = { fullName: 'Pat Firefighter', rank: 'Captain', station: 19, tour: 7, employeeId: '' }
+    // '555 12 3' is the review's admin-form case: 8 characters, only 6 digits.
+    for (const phone of ['555', '555 12 3', '415.555.0123', 'call me', '+-() -+()', '1'.repeat(21)]) {
+      const result = onboardingSchema.safeParse({ ...valid, phone })
+      expect(firstError(result), phone).toEqual({ path: 'phone', message: PHONE_INVALID_MESSAGE })
     }
+    expect(firstError(onboardingSchema.safeParse({ ...valid, phone: '  ' }))).toEqual({
+      path: 'phone',
+      message: PHONE_REQUIRED_MESSAGE,
+    })
   })
 })
 
@@ -58,14 +77,20 @@ describe('sign-up', () => {
     expect(parsed.fullName).toBe('Pat Firefighter')
   })
 
-  it('needs at least 8 characters of password', () => {
+  it('needs 8 to 72 characters of password', () => {
     const result = signupFormSchema.safeParse({ ...valid, password: 'short', confirmPassword: 'short' })
-    expect(firstError(result)).toEqual({ path: 'password', message: 'Use at least 8 characters.' })
+    expect(firstError(result)).toEqual({ path: 'password', message: PASSWORD_TOO_SHORT_MESSAGE })
+    expect(PASSWORD_TOO_SHORT_MESSAGE).toBe('Use at least 8 characters.')
+    const long = 'x'.repeat(PASSWORD_MAX + 1)
+    expect(firstError(signupFormSchema.safeParse({ ...valid, password: long, confirmPassword: long }))).toEqual({
+      path: 'password',
+      message: PASSWORD_TOO_LONG_MESSAGE,
+    })
   })
 
   it('needs matching passwords', () => {
     const result = signupFormSchema.safeParse({ ...valid, confirmPassword: 'something else' })
-    expect(firstError(result)?.path).toBe('confirmPassword')
+    expect(firstError(result)).toEqual({ path: 'confirmPassword', message: PASSWORD_MISMATCH_MESSAGE })
   })
 
   it('needs a real name', () => {
@@ -113,12 +138,3 @@ describe('onboarding', () => {
   })
 })
 
-describe('forced password change', () => {
-  it('needs 8+ characters and a matching confirmation', () => {
-    expect(changePasswordSchema.safeParse({ password: 'new password', confirmPassword: 'new password' }).success).toBe(true)
-    expect(firstError(changePasswordSchema.safeParse({ password: 'short', confirmPassword: 'short' }))?.path).toBe('password')
-    expect(firstError(changePasswordSchema.safeParse({ password: 'new password', confirmPassword: 'other' }))?.path).toBe(
-      'confirmPassword',
-    )
-  })
-})

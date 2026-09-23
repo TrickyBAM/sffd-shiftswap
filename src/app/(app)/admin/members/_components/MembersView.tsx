@@ -4,13 +4,13 @@ import { useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Users } from 'lucide-react'
 import { Card, EmptyState, ErrorState, LoadingBlock, cn } from '@/components/ui'
-import { isUuid } from '@/lib/api'
+import { isUuid, listMembers } from '@/lib/api'
+import { plural } from '@/lib/format'
 import { createClient } from '@/lib/supabase/client'
 import { Pager } from '../../_components/ListControls'
 import { useAdmin } from '../../_components/AdminProvider'
 import { useAsyncData, useDebouncedValue } from '../../_lib/useAsyncData'
-import { plural } from '../../_lib/format'
-import { DEFAULT_MEMBER_FILTERS, MEMBER_PAGE_SIZE, queryMembers, type MemberFilters } from '../_lib/query'
+import { DEFAULT_MEMBER_FILTERS, MEMBER_PAGE_SIZE, memberListOptions, type MemberFilters } from '../_lib/query'
 import { MemberFiltersBar } from './MemberFiltersBar'
 import { MemberRow } from './MemberRow'
 import { MemberSheet } from './MemberSheet'
@@ -32,7 +32,7 @@ export function MembersView() {
   const offset = page.key === filterKey ? page.offset : 0
 
   const members = useAsyncData(
-    () => queryMembers(createClient(), query, { offset, limit: MEMBER_PAGE_SIZE }),
+    () => listMembers(createClient(), memberListOptions(query, { offset, limit: MEMBER_PAGE_SIZE })),
     `${filterKey}|${offset}`,
   )
 
@@ -74,7 +74,9 @@ export function MembersView() {
           description={
             filterKey === JSON.stringify(DEFAULT_MEMBER_FILTERS)
               ? 'Nobody has signed up yet.'
-              : 'Try a different search or clear the filters.'
+              : query.status === 'all'
+                ? 'Try a different search or clear the filters. Removed accounts are under Status ▸ Removed.'
+                : 'Try a different search or clear the filters.'
           }
         />
       ) : (
