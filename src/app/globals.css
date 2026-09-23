@@ -1,106 +1,382 @@
 @import "tailwindcss";
 
-:root {
-  --bg-primary: #0a0a0f;
-  --bg-card: #12121a;
-  --bg-elevated: #1a1a26;
-  --bg-hover: #222233;
-  --sffd-red: #D32F2F;
-  --sffd-red-glow: rgba(211, 47, 47, 0.15);
-  --sffd-red-bright: #FF3D3D;
-  --accent-orange: #FF6B35;
-  --accent-blue: #4A9FFF;
-  --accent-purple: #9C6AFF;
-  --accent-green: #34D399;
-  --text-primary: #F0F0F5;
-  --text-secondary: #8888A0;
-  --text-dim: #555570;
-  --border: rgba(255,255,255,0.06);
+/*
+ * SFFD ShiftSwap design tokens.
+ *
+ * Brian's approved look (HANDOFF.md §8): near-black background, dark cards, SFFD red,
+ * orange/blue/purple accents, Bebas Neue display type over DM Sans body text.
+ *
+ * Accessibility adjustments (ARCHITECTURE §7.2):
+ * - --text-dim raised from #555570 to #8A8AA3 (5.9:1 on --bg-primary, 5.5:1 on --bg-card,
+ *   4.6:1 on --bg-hover) and --text-secondary raised to #A3A3B8 so it stays brighter than dim.
+ * - --sffd-red (#D32F2F) is only 4.0:1 as text on the dark background, so red *text* uses
+ *   --sffd-red-text (#FF4D4D, 6.0:1). The original red stays for fills (white on it is 5:1).
+ */
+/*
+ * Color tokens as Tailwind theme variables → utilities such as `bg-card`, `text-fg-muted`,
+ * `border-line`, `bg-sffd-red`, `text-sffd-red-text`, `bg-cal-swap/20`.
+ * Literal values (not var()) so opacity modifiers get a real fallback on browsers
+ * without color-mix(); `static` emits every variable even if no utility uses it.
+ */
+@theme static {
+  --color-surface: #0a0a0f;
+  --color-card: #12121a;
+  --color-elevated: #1a1a26;
+  --color-raised: #222233;
+
+  --color-fg: #F0F0F5;
+  --color-fg-muted: #A3A3B8;
+  --color-fg-dim: #8A8AA3;
+  --color-on-accent: #0a0a0f;
+
+  --color-line: rgba(255, 255, 255, 0.06);
+  --color-line-strong: rgba(255, 255, 255, 0.12);
+
+  --color-sffd-red: #D32F2F;
+  --color-sffd-red-dark: #B71C1C;
+  --color-sffd-red-bright: #FF3D3D;
+  --color-sffd-red-text: #FF4D4D;
+
+  --color-accent-orange: #FF6B35;
+  --color-accent-blue: #4A9FFF;
+  --color-accent-purple: #9C6AFF;
+  --color-accent-green: #34D399;
+  --color-accent-yellow: #FFD23F;
+
+  /* Keyboard focus ring: blue is 7.2:1 against the background and distinct from SFFD red. */
+  --color-focus: #4A9FFF;
+
+  /* Calendar legend (ARCHITECTURE §7.2). */
+  --color-cal-work: #D32F2F; /* I'm working (my tour day, not given away) */
+  --color-cal-open: #FF6B35; /* my open post */
+  --color-cal-available: #4A9FFF; /* open shifts I could request */
+  --color-cal-covering: #9A9AB0; /* I'm covering someone */
+  --color-cal-swap: #9C6AFF; /* SwapMatch leg (either direction) */
+
+  --color-background: #0a0a0f;
+  --color-foreground: #F0F0F5;
 }
 
 @theme inline {
-  --color-background: var(--bg-primary);
-  --color-foreground: var(--text-primary);
+  --font-sans: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-* {
-  box-sizing: border-box;
+/* The original token names (HANDOFF.md §8), kept for plain CSS and older markup. */
+:root {
+  --bg-primary: var(--color-surface);
+  --bg-card: var(--color-card);
+  --bg-elevated: var(--color-elevated);
+  --bg-hover: var(--color-raised);
+
+  --sffd-red: var(--color-sffd-red);
+  --sffd-red-dark: var(--color-sffd-red-dark);
+  --sffd-red-bright: var(--color-sffd-red-bright);
+  --sffd-red-text: var(--color-sffd-red-text);
+  --sffd-red-glow: rgba(211, 47, 47, 0.15);
+
+  --accent-orange: var(--color-accent-orange);
+  --accent-blue: var(--color-accent-blue);
+  --accent-purple: var(--color-accent-purple);
+  --accent-green: var(--color-accent-green);
+  --accent-yellow: var(--color-accent-yellow);
+
+  --text-primary: var(--color-fg);
+  --text-secondary: var(--color-fg-muted);
+  --text-dim: var(--color-fg-dim);
+  --text-on-accent: var(--color-on-accent);
+
+  --border: var(--color-line);
+  --border-strong: var(--color-line-strong);
+  --focus-ring: var(--color-focus);
+
+  --cal-work: var(--color-cal-work);
+  --cal-open: var(--color-cal-open);
+  --cal-available: var(--color-cal-available);
+  --cal-covering: var(--color-cal-covering);
+  --cal-swap: var(--color-cal-swap);
+
+  /* Shell metrics. */
+  --nav-height: 4.25rem; /* mobile bottom bar, excluding the safe-area inset */
+  --rail-width: 16rem; /* desktop left rail */
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 }
 
-html {
-  color-scheme: dark;
-}
+/* ---------------------------------------------------------------- base */
 
-body {
-  background: var(--bg-primary);
-  background-image:
-    radial-gradient(ellipse at 20% 0%, rgba(211, 47, 47, 0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 100%, rgba(74, 159, 255, 0.03) 0%, transparent 50%);
-  background-attachment: fixed;
-  color: var(--text-primary);
-  font-family: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  min-height: 100vh;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Animations */
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
+/* In the base layer so utilities (e.g. `outline-none`, `bg-*`) can override these. */
+@layer base {
+  * {
+    box-sizing: border-box;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background: var(--bg-primary);
+    background-image:
+      radial-gradient(ellipse at 20% 0%, rgba(211, 47, 47, 0.04) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 100%, rgba(74, 159, 255, 0.03) 0%, transparent 50%);
+    background-attachment: fixed;
+    color: var(--text-primary);
+    font-family: var(--font-dm-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Remove the 300 ms double-tap delay on controls without disabling pinch zoom. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  label,
+  summary,
+  [role="button"],
+  [role="tab"] {
+    touch-action: manipulation;
+  }
+
+  /* Visible keyboard focus everywhere; mouse/touch focus stays clean. */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  ::selection {
+    background: rgba(74, 159, 255, 0.35);
+    color: var(--text-primary);
   }
 }
 
-.animate-fade-in-up {
-  animation: fadeInUp 0.4s ease-out forwards;
-  opacity: 0;
+/* ---------------------------------------------------------------- utilities */
+
+@utility font-display {
+  font-family: var(--font-bebas-neue), "Bebas Neue", Impact, "Arial Narrow", sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
 }
 
-.delay-1 { animation-delay: 0.1s; }
-.delay-2 { animation-delay: 0.2s; }
-.delay-3 { animation-delay: 0.3s; }
-.delay-4 { animation-delay: 0.4s; }
+/* iOS safe-area insets (the viewport uses viewport-fit=cover). */
+@utility pt-safe {
+  padding-top: var(--safe-top);
+}
+@utility pb-safe {
+  padding-bottom: var(--safe-bottom);
+}
+@utility pl-safe {
+  padding-left: var(--safe-left);
+}
+@utility pr-safe {
+  padding-right: var(--safe-right);
+}
+@utility px-safe {
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+@utility mb-safe {
+  margin-bottom: var(--safe-bottom);
+}
 
-/* Card hover effect */
+/* Bottom padding for sheet content/footers: breathing room plus the home indicator. */
+@utility pb-safe-sheet {
+  padding-bottom: calc(var(--safe-bottom) + 1.25rem);
+}
+
+/* Bottom padding that clears the mobile tab bar (use `md:pb-0` on desktop). */
+@utility pb-nav {
+  padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 1rem);
+}
+
+/* Offset for elements pinned above the mobile tab bar (toasts, floating buttons). */
+@utility bottom-nav {
+  bottom: calc(var(--nav-height) + var(--safe-bottom) + 0.75rem);
+}
+
+/* Minimum 44 × 44 px touch target. */
+@utility tap-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Glassmorphic navigation surfaces. */
+@utility glass-nav {
+  background: rgba(10, 10, 15, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+@utility calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Card hover lift, only on devices that can actually hover. */
 .card-hover {
   transition: transform 0.2s ease, border-color 0.2s ease;
 }
-.card-hover:hover {
-  transform: translateY(-1px);
-  border-color: rgba(255,255,255,0.12);
-}
-
-/* Font classes */
-.font-display {
-  font-family: var(--font-bebas-neue), sans-serif;
-  letter-spacing: 0.02em;
+@media (hover: hover) {
+  .card-hover:hover {
+    transform: translateY(-1px);
+    border-color: var(--border-strong);
+  }
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
+  height: 6px;
 }
 ::-webkit-scrollbar-track {
   background: var(--bg-primary);
 }
 ::-webkit-scrollbar-thumb {
-  background: #333;
+  background: #333344;
   border-radius: 3px;
 }
 
-/* Calendar grid */
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
+/* ---------------------------------------------------------------- motion */
+
+/*
+ * Animations are theme tokens so they work with variants (`md:animate-pop-in`).
+ * `both` fill mode keeps elements hidden during a stagger delay and visible afterwards.
+ */
+@theme {
+  --animate-fade-in-up: fadeInUp 0.4s ease-out both;
+  --animate-fade-in: fadeIn 0.2s ease-out both;
+  --animate-sheet-up: sheetUp 0.28s cubic-bezier(0.32, 0.72, 0, 1) both;
+  --animate-pop-in: popIn 0.2s ease-out both;
+  --animate-toast-in: toastIn 0.2s ease-out both;
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes sheetUp {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes popIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes toastIn {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
 }
 
-/* Glassmorphic nav */
-.glass-nav {
-  background: rgba(10, 10, 15, 0.92);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Skeleton placeholder sheen. */
+@utility animate-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* Stagger helpers for lists that fade in. */
+@utility stagger-1 {
+  animation-delay: 0.1s;
+}
+@utility stagger-2 {
+  animation-delay: 0.2s;
+}
+@utility stagger-3 {
+  animation-delay: 0.3s;
+}
+@utility stagger-4 {
+  animation-delay: 0.4s;
+}
+
+/*
+ * Respect the OS "reduce motion" setting: animations and transitions finish instantly
+ * (end states still apply, so nothing is left invisible) and the shimmer is removed.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-shimmer {
+    animation: none !important;
+    background-image: none !important;
+  }
+
+  .card-hover:hover {
+    transform: none;
+  }
 }

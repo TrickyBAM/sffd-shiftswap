@@ -1,152 +1,88 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  Home,
-  PlusCircle,
+  ArrowLeftRight,
+  CalendarDays,
   ClipboardList,
-  User,
-  Bell,
   Flame,
+  Plus,
+  UserRound,
+  type LucideIcon,
 } from 'lucide-react'
-import { createBrowserClient } from '@supabase/ssr'
-import { useProfile } from '@/contexts/ProfileContext'
+import { cn } from '@/components/ui/cn'
 
-const navItems = [
-  { href: '/dashboard', label: 'Calendar', icon: Home },
-  { href: '/shift-board', label: 'Board', icon: ClipboardList },
-  { href: '/post-shift', label: 'Post', icon: PlusCircle, isCenter: true },
-  { href: '/notifications', label: 'Alerts', icon: Bell },
-  { href: '/profile', label: 'Profile', icon: User },
+interface NavItem {
+  href: string
+  label: string
+  icon: LucideIcon
+  /** The raised center "Post" button. */
+  primary?: boolean
+}
+
+/** The five tabs (ARCHITECTURE §1, §7.1): Calendar · Board · Post · Trades · Profile. */
+export const NAV_ITEMS: readonly NavItem[] = [
+  { href: '/calendar', label: 'Calendar', icon: CalendarDays },
+  { href: '/board', label: 'Board', icon: ClipboardList },
+  { href: '/post', label: 'Post', icon: Plus, primary: true },
+  { href: '/trades', label: 'Trades', icon: ArrowLeftRight },
+  { href: '/profile', label: 'Profile', icon: UserRound },
 ]
 
+export function isNavActive(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+/**
+ * Main navigation: glassmorphic bottom tab bar with a raised Post button on phones,
+ * left rail on desktop (md+). Only one is displayed at a time, so each is its own
+ * "Main" landmark and the hidden one is removed from the accessibility tree by CSS.
+ */
 export default function Navigation() {
-  const pathname = usePathname()
-  const { profile } = useProfile()
-  const [unreadCount, setUnreadCount] = useState(0)
-
-  useEffect(() => {
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    )
-
-    async function fetchUnreadCount() {
-      const { count } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', profile.id)
-        .eq('read', false)
-
-      setUnreadCount(count ?? 0)
-    }
-
-    fetchUnreadCount()
-
-    const channel = supabase
-      .channel('notifications')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${profile.id}`,
-        },
-        () => {
-          setUnreadCount((prev) => prev + 1)
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${profile.id}`,
-        },
-        () => {
-          fetchUnreadCount()
-        }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [profile.id])
-
-  function isActive(href: string) {
-    return pathname === href || pathname.startsWith(href + '/')
-  }
+  const pathname = usePathname() ?? ''
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside className="fixed left-0 top-0 hidden h-full w-64 border-r border-white/[0.06] bg-[#12121a] md:flex md:flex-col">
-        {/* Logo */}
-        <div className="flex items-center gap-2 border-b border-white/[0.06] px-5 py-5">
-          <Flame size={28} className="text-[#D32F2F]" />
-          <span className="font-display text-2xl tracking-wide text-[#F0F0F5]">
-            SHIFT<span className="text-[#D32F2F]">SWAP</span>
-          </span>
-        </div>
+      <DesktopRail pathname={pathname} />
+      <MobileTabBar pathname={pathname} />
+    </>
+  )
+}
 
-        {/* Nav Items */}
-        <nav className="flex flex-1 flex-col gap-1 px-3 py-4">
-          {navItems.map((item) => {
-            const Icon = item.icon
-            const active = isActive(item.href)
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
-                  active
-                    ? 'bg-[#D32F2F]/10 text-[#D32F2F]'
-                    : 'text-[#8888A0] hover:bg-white/[0.04] hover:text-[#F0F0F5]'
-                }`}
-              >
-                <div className="relative">
-                  <Icon size={20} />
-                  {item.href === '/notifications' && unreadCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#D32F2F] px-0.5 text-[10px] font-bold text-white">
-                      {unreadCount > 99 ? '99+' : unreadCount}
-                    </span>
-                  )}
-                </div>
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
-      </aside>
+function DesktopRail({ pathname }: { pathname: string }) {
+  return (
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[var(--rail-width)] flex-col border-r border-line bg-card pl-safe md:flex">
+      <Link
+        href="/calendar"
+        className="flex min-h-16 items-center gap-2 border-b border-line px-5 py-5"
+        aria-label="ShiftSwap home"
+      >
+        <Flame size={28} className="text-sffd-red-text" aria-hidden="true" />
+        <span className="font-display text-2xl tracking-wide text-fg" aria-hidden="true">
+          SHIFT<span className="text-sffd-red-text">SWAP</span>
+        </span>
+      </Link>
 
-      {/* Mobile Bottom Tab Bar - Glassmorphic */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 flex h-16 items-end justify-around glass-nav border-t border-white/[0.06] md:hidden pb-1">
-        {navItems.map((item) => {
+      <nav aria-label="Main" className="flex flex-1 flex-col gap-1 px-3 py-4">
+        {NAV_ITEMS.map((item) => {
           const Icon = item.icon
-          const active = isActive(item.href)
+          const active = isNavActive(pathname, item.href)
 
-          if (item.isCenter) {
+          if (item.primary) {
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className="relative -mt-4 flex flex-col items-center"
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'my-2 flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm font-semibold text-white transition-colors',
+                  'bg-sffd-red shadow-[0_4px_20px_rgba(211,47,47,0.3)] hover:bg-sffd-red-dark',
+                  active && 'ring-2 ring-white/40',
+                )}
               >
-                <div
-                  className="flex h-[52px] w-[52px] items-center justify-center rounded-2xl text-white shadow-lg"
-                  style={{
-                    background: 'linear-gradient(135deg, #D32F2F 0%, #B71C1C 100%)',
-                    boxShadow: '0 4px 20px rgba(211, 47, 47, 0.4)',
-                  }}
-                >
-                  <Icon size={24} />
-                </div>
-                <span className="text-[10px] mt-1 text-[#8888A0]">{item.label}</span>
+                <Icon size={20} aria-hidden="true" />
+                Post a shift
               </Link>
             )
           }
@@ -155,30 +91,85 @@ export default function Navigation() {
             <Link
               key={item.href}
               href={item.href}
-              className="flex flex-col items-center justify-center gap-0.5 pt-1.5"
+              aria-current={active ? 'page' : undefined}
+              className={cn(
+                'flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm font-medium transition-colors',
+                active
+                  ? 'bg-sffd-red/10 text-sffd-red-text'
+                  : 'text-fg-muted hover:bg-white/[0.04] hover:text-fg',
+              )}
             >
-              <div className="relative">
-                <Icon
-                  size={22}
-                  className={active ? 'text-[#D32F2F]' : 'text-[#555570]'}
-                />
-                {item.href === '/notifications' && unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#D32F2F] px-0.5 text-[10px] font-bold text-white">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
-                )}
-              </div>
-              <span
-                className={`text-[10px] ${
-                  active ? 'text-[#D32F2F] font-medium' : 'text-[#555570]'
-                }`}
-              >
-                {item.label}
-              </span>
+              <Icon size={20} aria-hidden="true" />
+              {item.label}
             </Link>
           )
         })}
       </nav>
-    </>
+
+      <div className="border-t border-line px-5 py-4 pb-[calc(var(--safe-bottom)+1rem)]">
+        <Link href="/privacy" className="text-xs text-fg-dim underline-offset-2 hover:text-fg-muted hover:underline">
+          Unofficial tool · Privacy &amp; disclaimer
+        </Link>
+      </div>
+    </aside>
+  )
+}
+
+function MobileTabBar({ pathname }: { pathname: string }) {
+  return (
+    <nav
+      aria-label="Main"
+      className="glass-nav fixed inset-x-0 bottom-0 z-40 border-t border-line pb-safe px-safe md:hidden"
+    >
+      <ul className="mx-auto flex h-[var(--nav-height)] max-w-lg items-stretch justify-around">
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon
+          const active = isNavActive(pathname, item.href)
+
+          if (item.primary) {
+            return (
+              <li key={item.href} className="flex flex-1 justify-center">
+                <Link
+                  href={item.href}
+                  aria-current={active ? 'page' : undefined}
+                  className="group relative -mt-5 flex min-w-16 flex-col items-center"
+                >
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      'flex h-14 w-14 items-center justify-center rounded-2xl text-white transition-transform',
+                      'bg-linear-to-br from-sffd-red to-sffd-red-dark shadow-[0_4px_20px_rgba(211,47,47,0.45)]',
+                      'group-active:scale-95',
+                      active && 'ring-2 ring-white/50 ring-offset-2 ring-offset-surface',
+                    )}
+                  >
+                    <Icon size={26} strokeWidth={2.5} />
+                  </span>
+                  <span className={cn('mt-1 text-[11px] font-medium', active ? 'text-fg' : 'text-fg-muted')}>
+                    {item.label}
+                  </span>
+                </Link>
+              </li>
+            )
+          }
+
+          return (
+            <li key={item.href} className="flex flex-1">
+              <Link
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex w-full min-w-11 flex-col items-center justify-center gap-0.5 text-[11px] transition-colors',
+                  active ? 'font-semibold text-sffd-red-text' : 'font-medium text-fg-dim hover:text-fg',
+                )}
+              >
+                <Icon size={22} aria-hidden="true" />
+                {item.label}
+              </Link>
+            </li>
+          )
+        })}
+      </ul>
+    </nav>
   )
 }
