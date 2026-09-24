@@ -3,3 +3,4 @@
 
 export { StationPicker, type StationPickerProps } from './StationPicker'
 export { TourPicker, TourPreview, NO_TOUR_LABEL, type TourPickerProps, type TourPreviewProps } from './TourPicker'
+export { TourFinder, type TourFinderProps } from './TourFinder'

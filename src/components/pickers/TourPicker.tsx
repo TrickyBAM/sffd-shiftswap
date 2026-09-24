@@ -14,6 +14,7 @@ import {
   type Ymd,
 } from '@/lib/sffd/dates'
 import { TOURS, isTour, nextTourDays, tourWorks } from '@/lib/sffd/tours'
+import { TourFinder } from './TourFinder'
 
 export const NO_TOUR_LABEL = 'No tour (relief, detail, 40-hour)'
 
@@ -31,6 +32,11 @@ export interface TourPickerProps {
   allowNone?: boolean
   /** Shows the next two months of this tour's work days (red) under the select. */
   showPreview?: boolean
+  /**
+   * Shows "Don't know your tour? Find it from days you worked" (default true),
+   * which matches tapped work days against the 31 real tours.
+   */
+  finder?: boolean
   disabled?: boolean
   /** Id of the <select>. Generated when omitted. */
   id?: string
@@ -53,6 +59,7 @@ export function TourPicker({
   onChange,
   allowNone = false,
   showPreview = false,
+  finder = true,
   disabled = false,
   id,
   label = 'Tour',
@@ -94,6 +101,15 @@ export function TourPicker({
           ))}
         </Select>
       </Field>
+
+      {finder ? (
+        <TourFinder
+          disabled={disabled}
+          onFound={(tour) => onChange(tour)}
+          onNoTour={allowNone ? () => onChange(null) : undefined}
+          className="-mt-1"
+        />
+      ) : null}
 
       {showPreview ? (
         <TourPreview tour={isTour(value) ? value : chosen ? null : undefined} />

@@ -550,3 +550,5 @@ UI shell
 - **Board URL params:** `?date=YYYY-MM-DD`, `?scope=all` (all locations, my rank, "Only shifts I can take" on) and `?shift=<id>`. The calendar's "See N available" uses the same query as the board.
 - **Redirects:** legacy routes (incl. /forgot-password, /reset-password, /verify-email, /auth/callback) redirect in `next.config.ts` only.
 - A cancel request on a trade that has started can still be withdrawn or dismissed (agreeing is disabled; only an admin can void).
+
+- **Find my tour:** `TourPicker` includes `TourFinder` ("Don't know your tour? Find it from days you worked"). It matches tapped work days against the 31 real tours (`findTour` / `matchTours` in `src/lib/sffd/tours.ts`, one stray trade day tolerated) and, because the 3,3,4,3,3,4,3,3,5 pattern nearly repeats within the cycle, asks "Did you work <day>?" about the day that best splits the remaining candidates (`disambiguatingDay`). Any three shifts resolve in at most two questions (tested for all 31 tours).
