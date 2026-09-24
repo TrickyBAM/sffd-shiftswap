@@ -40,3 +40,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# agent skills installed by the Vercel CLI (local only)
+/.agents/
+/.claude/skills/

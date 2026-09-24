@@ -1,245 +1,243 @@
-# SFFD ShiftSwap — Handoff Report
+# SFFD ShiftSwap: Handoff
 
-A shift-trading web app for San Francisco Fire Department firefighters. This document is written for an AI agent (or developer) picking up the project cold.
+For the next developer or AI agent picking this project up cold. Read this, then
+`docs/ARCHITECTURE.md` (the binding design and build contract; its section 9
+"Implementation notes" overrides earlier sections where they differ), then
+`AGENTS.md`.
 
----
-
-## 1. Project at a glance
-
-- **Owner:** Brian Machado (SFFD firefighter, GitHub `TrickyBAM`)
-- **Goal:** let SFFD firefighters post shifts they can't work, accept other firefighters' shifts, and track their trade balance.
-- **Production URL:** https://sffd-shiftswap.vercel.app
-- **GitHub:** https://github.com/TrickyBAM/sffd-shiftswap (branch: `main`)
-- **Local path:** `/Users/teslamac/sffd-shiftswap`
-- **Status:** end-to-end MVP deployed. Auth + profile onboarding + schedule detection + shift board + post/cancel + notifications are wired. Currently blocked on a user-side login issue (see §10).
-
-## 2. Tech stack
-
-| Layer | Choice |
-|---|---|
-| Framework | **Next.js 16.2.1** (App Router, Turbopack) |
-| UI | React 19, Tailwind CSS, custom design tokens |
-| Forms | react-hook-form + zod v4 |
-| Auth + DB | Supabase (`@supabase/ssr` v0.9) |
-| Hosting | Vercel |
-| Fonts | Bebas Neue (display), DM Sans (body) — loaded from Google Fonts in `app/layout.tsx` |
-
-> ⚠️ **Read `AGENTS.md` before writing code.** It says: "This is NOT the Next.js you know. APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code."
-
-## 3. Service IDs / credentials
-
-| Service | ID / URL |
-|---|---|
-| Vercel project ID | `prj_bu8GRjkHNirIdE1hqvMe5LlUpFEy` |
-| Vercel team ID | `team_9KHmhLMjNKAUp6suv3umdjdl` |
-| Vercel project name | `sffd-shiftswap` |
-| Supabase project ref | `mddpdrkxexxpyneqmxfi` |
-| Supabase URL | `https://mddpdrkxexxpyneqmxfi.supabase.co` |
-| Anon key | in `.env.local` (also configured in Vercel env) |
-
-The anon key is committed in `.env.local` (it's a public anon key, fine to expose). The service role key is **not** stored locally — Brian has it in the Supabase dashboard.
-
-## 4. File structure (src/)
-
-```
-src/
-├── middleware.ts                    # Wraps updateSession (lib/supabase/middleware.ts)
-├── app/
-│   ├── layout.tsx                   # Root layout, fonts, global styles
-│   ├── page.tsx                     # / → redirects to /login or /dashboard
-│   ├── globals.css                  # Design tokens, fadeInUp keyframes
-│   ├── (auth)/                      # Route group: unauth pages
-│   │   ├── layout.tsx               # Centered card layout
-│   │   ├── login/page.tsx           # Email + password, signInWithPassword
-│   │   ├── signup/page.tsx          # Email + password + full_name
-│   │   ├── verify-email/page.tsx    # "Check your inbox" landing
-│   │   ├── onboarding/page.tsx      # SFFD division/battalion/station/rank/tour
-│   │   └── auth/callback/route.ts   # OAuth/magic-link callback, routes to onboarding|schedule-setup|dashboard
-│   ├── (app)/                       # Route group: authed + profile_complete + schedule.setup_complete
-│   │   ├── layout.tsx               # Auth + profile + schedule guard, ProfileProvider
-│   │   ├── dashboard/page.tsx       # Calendar with work days, posted shifts, trade score banner
-│   │   ├── shift-board/page.tsx     # All open shifts; user's own get a Cancel button
-│   │   ├── post-shift/page.tsx      # Form to create a Shift row
-│   │   ├── profile/page.tsx         # Profile info, "Recalibrate Schedule", Sign Out
-│   │   └── notifications/page.tsx   # Notifications list (real-time subscription)
-│   └── schedule-setup/              # OUTSIDE (app) on purpose — see §6
-│       ├── layout.tsx               # Auth + profile guard ONLY (no schedule check, avoids redirect loop)
-│       └── page.tsx                 # 3-step wizard: pick days → confirm prediction → done
-├── components/
-│   └── Navigation.tsx               # Bottom tab bar (glassmorphic, 5 items, raised Post button)
-├── contexts/
-│   └── ProfileContext.tsx           # Provides Profile to (app) tree
-└── lib/
-    ├── supabase/{client,server,middleware}.ts   # @supabase/ssr factories
-    ├── schedule.ts                  # Pattern detection algorithm — see §7
-    ├── tours.ts                     # Legacy 31-tour rotation utilities (mostly unused after schedule rewrite)
-    ├── sffd.ts                      # SFFD division → battalion → station data for cascading dropdowns
-    └── types.ts                     # Profile, Shift, Schedule, Notification, etc.
-```
-
-## 5. Database schema (Supabase / Postgres)
-
-All tables have RLS enabled. Policies: users can read their own rows, plus shifts/profiles are readable by all authenticated users for the shift board.
-
-### `profiles`
-- `id uuid` (FK → auth.users, cascade delete) PK
-- `full_name text`, `email text`
-- `rank text`, `position_type text`
-- `tour int`, `division int`, `battalion int`, `station int`
-- `phone text` (nullable)
-- `trade_requested int`, `trade_filled int`, `trade_outstanding int`, `trade_earned int` (default 0)
-- `profile_complete bool` (default false)
-- `created_at`, `updated_at` timestamptz
-
-**Trigger:** `handle_new_user()` runs `AFTER INSERT ON auth.users` → inserts a profile row with safe defaults. **The original CHECK constraint on `division IN (2,3)` was dropped** because the trigger inserts a placeholder before onboarding sets the real division. Be careful re-adding any CHECK constraints to columns the trigger pre-fills.
-
-### `shifts`
-- `id uuid` PK, `poster_id uuid` (FK profiles), `poster_name text`
-- `division int`, `battalion int`, `station int`, `rank text`
-- `date date`, `shift_type text`
-- `status text` — `'open' | 'covered' | 'cancelled'`
-- `return_dates date[]`, `accept_limit_type text` ('' | 'station' | 'battalion' | 'division')
-- `coverer_id`, `coverer_name`, `notes`
-- `created_at`, `updated_at`
-
-**RPC:** `accept_shift(shift_id uuid)` — atomic accept, updates shift + both users' trade counters.
-
-### `schedules`
-- `id uuid` PK
-- `user_id uuid` UNIQUE (FK profiles, cascade)
-- `work_dates date[]` — raw user-tapped days
-- `gap_pattern int[]` — detected cycle (e.g. `[2,4,1,4,2,4,...]`)
-- `anchor_date date` — first work day, used to project forward/backward
-- `setup_complete bool` (default false)
-- `created_at`, `updated_at`
-
-### `notifications`
-- `id uuid` PK, `user_id`, `type`, `title`, `message`, `shift_id`, `related_user_id`, `read bool`, `created_at`
-- Real-time subscription used in `notifications/page.tsx`.
-
-### `matched_trades`
-- Used for SwapMatch (auto-pairing posters whose return dates align). Not heavily exercised in MVP.
-
-## 6. Routing model
-
-Three groups, two layouts that gate access:
-
-1. **`(auth)`** — login, signup, verify-email, onboarding, auth callback. Unauth-friendly.
-2. **`(app)`** — gated by `(app)/layout.tsx`:
-   - if no user → redirect `/login`
-   - if no profile or `profile_complete=false` → redirect `/onboarding`
-   - if no schedule or `setup_complete=false` → redirect `/schedule-setup`
-3. **`/schedule-setup`** — *standalone, outside both groups*. Its layout checks auth + profile but **deliberately does not check schedule**, otherwise we'd redirect-loop into ourselves. Don't move it back inside `(app)`.
-
-`src/lib/supabase/middleware.ts` handles top-level auth: redirects unauth users from protected paths to `/login`, and authed users away from auth pages to `/dashboard`.
-
-## 7. Schedule pattern detection (`src/lib/schedule.ts`)
-
-SFFD runs a 31-day rotation that produces ~9 work days per cycle, with non-uniform gaps. We don't ask the user to enter "platoon" or "tour number" — we ask them to mark the days they worked on a calendar, then detect the cycle.
-
-Algorithm:
-1. Sort `work_dates`, compute consecutive gaps.
-2. Try cycle lengths 2 through min(gaps.length, 12).
-3. For each length, fold the gaps into that cycle, score how well the folded pattern predicts the original sequence (Occam bonus for shorter cycles).
-4. Pick the highest-scoring pattern; store as `gap_pattern`.
-
-Key exports:
-- `detectSchedulePattern(workDates)` → `{ gapPattern, confidence, anchorDate }`
-- `getWorkDatesForMonth(anchorDate, gapPattern, year, month)` — used by the dashboard calendar
-- `projectSchedule()`, `projectScheduleBackward()` — extrapolate
-- `refinePattern(month1Dates, month2Dates)` — combine two months for better accuracy after the user corrects the wizard's prediction in step 2
-
-The wizard at `/schedule-setup` is the only place users interact with this. After Brian corrects month-2, we call `refinePattern` and save the better pattern.
-
-## 8. Design system
-
-Set in `globals.css` and applied across all pages. From the most recent design overhaul commit (`cd1243c`):
-
-- Colors: `--bg-primary #0a0a0f`, `--bg-card #12121a`, `--sffd-red #D32F2F`, `--accent-orange #FF6B35`, `--accent-blue #4A9FFF`, `--accent-purple #9C6AFF`, `--text-primary #F0F0F5`, `--text-secondary #8888A0`, `--text-dim #555570`, borders `rgba(255,255,255,0.06)`
-- Fonts: Bebas Neue (`.font-display`) for headers, DM Sans for body
-- Cards: `bg-[#12121a]`, `rounded-2xl`, `border border-white/[0.06]`, hover lift
-- Animations: `fadeInUp` keyframes with staggered `animation-delay`
-- Bottom nav: glassmorphic, raised center Post button with red glow
-
-If you redesign anything, **stay inside this token system** — Brian explicitly approved this look.
-
-## 9. How to run / deploy
-
-```bash
-# Local dev (port 3004 in launch.json)
-cd /Users/teslamac/sffd-shiftswap
-npm run dev
-
-# Deploy
-git push origin main           # auto-deploys via Vercel GitHub integration
-# OR manual:
-npx vercel --prod
-```
-
-Preview tooling: `.claude/launch.json` (in `~/.claude/`) defines a `shiftswap` server on port 3004. Use `mcp__Claude_Preview__preview_*` tools with that name.
-
-For Supabase SQL changes Brian opens the SQL editor in Chrome (project ref `mddpdrkxexxpyneqmxfi`) and pastes statements. There is no migrations directory — schema lives only in Supabase. Document any new SQL you run by pasting it into a commit message or this file.
-
-## 10. Recent fixes (chronological, most recent first)
-
-1. **Design system overhaul** (`cd1243c`, `8c906c9`) — Bebas Neue + DM Sans, dark token palette, glassmorphic nav, fadeInUp animations. Applied across all pages including onboarding.
-2. **Cancel/delete shift** (`863d146`) — user's own posted shifts now show a "Cancel Shift" button on both the dashboard popup and the shift board card. Confirms before cancelling, sets `status='cancelled'`, decrements `trade_requested` and `trade_outstanding`.
-3. **`profiles_division_check` constraint dropped** — the `handle_new_user` trigger was inserting a default division that violated the CHECK (only 2 or 3 allowed). Fix: dropped the constraint entirely. Real division is set during onboarding.
-4. **Schedule setup feature** (`2ed2df3`) — pattern detection wizard, `schedules` table, dashboard calendar uses `getWorkDatesForMonth`, profile page has Recalibrate button.
-5. **Initial build** (`81ab600`) — full app skeleton, auth, onboarding, shift CRUD, notifications.
-
-## 11. Current open issue
-
-**Brian can't log in to his own account.** Diagnostics run on 2026-04-26:
-
-- ✅ Vercel deployment is `READY`, latest commit `8c906c9` deployed.
-- ✅ Supabase REST returns 401 (expected — needs auth), `/auth/v1/health` returns 200, `/auth/v1/settings` shows email enabled, signup not disabled.
-- ✅ Reproduced login form locally against live Supabase: signup works (200), login with unconfirmed account returns "Email not confirmed" exactly as designed.
-- ⚠️ Vercel runtime logs show `[Ct [AuthUnknownError]: Une...` on GET /login (200) and /dashboard (307). Request status is fine — this is `@supabase/ssr` logging an internal warning when it tries to refresh a stale session cookie. **Most likely cause: Brian's browser has a stale Supabase cookie from before the project was paused.**
-
-**Next agent to-do:** ask Brian for the email he uses, then either (a) trigger a password reset via Supabase, or (b) inspect the user row in `auth.users` (needs service role key from Brian) to see if `email_confirmed_at` is null — if so, either manually confirm or disable the email-confirmation requirement. The simplest fix is usually "clear cookies for sffd-shiftswap.vercel.app or use Incognito, then log in fresh."
-
-The "AuthUnknownError" log noise itself is harmless. If you want to silence it, wrap `supabase.auth.getUser()` in `src/lib/supabase/middleware.ts` in a try/catch and treat any thrown error as `user = null`.
-
-## 12. Things NOT yet built
-
-- **SwapMatch UI polish** — `matched_trades` table exists but the UI to surface auto-matches is minimal.
-- **Push/email notifications** — only in-app notifications work. No real-time email or push.
-- **Admin tools** — no way to ban a user, force-cancel a shift, or audit trade balances. Brian eventually wants this.
-- **Mobile-app wrapper** — currently a responsive PWA-shaped web app. No native shell.
-- **Production SMTP** — Supabase free-tier shared SMTP is unreliable. Plug in SendGrid/Resend before scaling beyond Brian's testing circle.
-- **Tests** — no test suite. `npm run build` is the only correctness gate.
-
-## 13. Working with Brian
-
-- Communicates in plain English; expects agents to test their own work end-to-end.
-- "Build it, test it, push it, deploy it" is his default expectation.
-- He's a firefighter, not a developer. Don't dump code at him — show outcomes (live URLs, screenshots, what works).
-- He's on Vercel + Anthropic paid plans. Cost is not a constraint within reason.
-
-## 14. Useful commands cheat-sheet
-
-```bash
-# Vercel
-npx vercel --prod                                    # deploy
-npx vercel logs sffd-shiftswap.vercel.app           # tail logs
-
-# Git
-git log --oneline -20
-git push origin main
-
-# Supabase auth probe (no service role needed)
-curl -sS "https://mddpdrkxexxpyneqmxfi.supabase.co/auth/v1/health" \
-  -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY"
-
-# Trigger password reset for a user
-curl -sS -X POST \
-  "https://mddpdrkxexxpyneqmxfi.supabase.co/auth/v1/recover" \
-  -H "apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"USER_EMAIL"}'
-```
+No secrets live in this file or anywhere in the repository. They are in Vercel
+(environment variables) and in your local `.env.local` (from `vercel env pull`,
+gitignored).
 
 ---
 
-*Generated 2026-04-26. If the date on this file is more than a few weeks old, run `git log --oneline -10` and reconcile §10 / §11 against actual recent commits before trusting them.*
+## 1. What this is
+
+A shift-trading web app (installable PWA) for San Francisco Fire Department
+fire-side members. A member posts one of their shifts; same-rank members request
+it (optionally proposing a SwapMatch return date); the poster confirms one
+request, which makes a trade. Undoing a trade needs both parties to agree (or an
+admin voids it). Sign-ups that match the uploaded department roster are approved
+automatically; others wait for an admin. Work schedules come from the member's
+tour number (the SFFD 31-day rotation). TeleStaff remains the official system of
+record, and members acknowledge that once.
+
+- **Owner and admin:** Brian Machado, an SFFD firefighter and not a developer
+  (GitHub `TrickyBAM`). Explain things in plain English and show outcomes. He
+  prefers that you do setup chores yourself (CLI or API) rather than hand him steps.
+- **Users:** firefighters on phones, mostly iPhones with the app installed to the
+  home screen.
+
+## 2. Current state (2026-09-23, evening)
+
+Checked on 2026-09-23 with read-only commands (`/api/keepalive`,
+`npm run db:migrate -- --status`, `node scripts/db/set-app-config.mjs --list`
+and a count query). Re-check before relying on it.
+
+- **Production is v1.** <https://sffd-shiftswap.vercel.app> serves the v1
+  rebuild, deployed from the branch **`release/v1`** with the Vercel CLI
+  (`vercel deploy --prod` from the local clone). **The GitHub repository is not
+  connected to the Vercel project**, so pushing or merging deploys nothing; see
+  `docs/DEPLOY.md` section 2. `/api/keepalive` answers `"ok": true`.
+- **Branches:** `release/v1` holds v1. `main` (GitHub's default branch) still
+  holds the pre-v1 code and the Keepalive workflow. Merge `release/v1` into
+  `main` when v1 is signed off, so GitHub matches production and CI runs on
+  `main` too.
+- **Database:** the fresh Supabase project (`xyywfujcjqadoldmydef`). The v1
+  schema is `supabase/migrations/0001` to `0011`. `0001` to `0010` are applied.
+  **`0011_v1_review_fixes.sql` was still pending** when this was written, and the
+  current `release/v1` code needs it (member cards, account removal,
+  `profiles.removed_at`, the PM give-away schedule rules, the sign-up lockdown).
+  Apply it with `npm run db:migrate` before or with the next production deploy,
+  then check `npm run db:migrate -- --status` shows everything applied. Don't
+  edit applied migrations; add new numbered files.
+- **No real users yet:** no members, no admins and an empty roster.
+- **Launch checklist** (`docs/DEPLOY.md` "First launch checklist"):
+  - Done: the VAPID keys and `PUSH_WEBHOOK_SECRET` exist in Vercel (they come
+    down with `vercel env pull`; confirm they are set for Production with
+    `vercel env ls`), `pg_net` is installed, and the database's
+    `push_webhook_url` and `push_webhook_secret` are set.
+  - Not done yet: Brian signs up in the app and is made the first admin
+    (`node scripts/db/make-admin.mjs <his email>`), the roster upload
+    (`docs/ADMIN-GUIDE.md` section 2), and a test alert on an installed iPhone.
+  - Not checked: Supabase ▸ Authentication "Allow new users to sign up" off,
+    and a hand-run of the GitHub Keepalive workflow.
+- **Before calling v1 finished:** `npm run check` and `npm run build` pass,
+  `node scripts/smoke/live-smoke.mjs` and `node scripts/smoke/ui-tour.mjs` run
+  clean against production, and someone walks through `docs/USER-GUIDE.md` on
+  a phone.
+
+## 3. Services
+
+| Service | Details |
+|---|---|
+| **Vercel** | Project `sffd-shiftswap`, id `prj_bu8GRjkHNirIdE1hqvMe5LlUpFEy`, team `team_9KHmhLMjNKAUp6suv3umdjdl`, Hobby plan, Node 24.x. Production URL <https://sffd-shiftswap.vercel.app>. Preview URLs are behind Vercel Authentication (sign in to Vercel to open them). The Vercel CLI on Brian's PC is logged in, and the local clone is linked (`vercel link`). |
+| **Supabase** (via the Vercel Marketplace) | Resource `sffd-shiftswap-db`, project ref `xyywfujcjqadoldmydef`, region `sfo1`, **free plan**, Postgres 17. Billed through Brian's Vercel account; open it from Vercel ▸ Storage. The integration manages the Supabase environment variables in Vercel. |
+| **GitHub** | `TrickyBAM/sffd-shiftswap`, default branch `main`. v1 work is on `release/v1`. **Not connected to Vercel**: deploys are made with the Vercel CLI. Workflows: `.github/workflows/ci.yml` (lint, typecheck, tests, build) and `keepalive.yml` (daily ping). Old branches `master` and `codex/bootstrap` hold a 2025 Firebase version and are stale. |
+
+The local Windows clone is
+`C:\Users\TrickyBAM\Documents\New project\codex-repos\sffd-shiftswap`.
+Brian's earlier Mac copy (`/Users/teslamac/sffd-shiftswap`) and the Vite
+prototype are stale.
+
+## 4. Architecture in brief
+
+All details are in `docs/ARCHITECTURE.md`. The shape:
+
+- **Database first.** Every rule (eligibility, same rank, schedule conflicts,
+  SwapMatch legs, mutual cancel, roster matching, notification fan-out) lives in
+  Postgres RPCs (`security definer`, `search_path = ''`, friendly `raise` messages
+  with a hint code). Row Level Security (RLS) guards every table; anon gets nothing except
+  `app_keepalive` and `calendar_feed`. The browser talks to Supabase directly with
+  the member's session.
+- **`src/lib/api/*`**: one typed function per RPC or read. Each takes a Supabase
+  client first, returns data and throws `AppError` (`src/lib/errors.ts`) whose
+  `message` is safe to show. Mutations that notify someone fire-and-forget
+  `POST /api/push/flush`.
+- **Dates** are `YYYY-MM-DD` strings in America/Los_Angeles. Use
+  `src/lib/sffd/dates.ts`, and never `new Date('YYYY-MM-DD')`.
+- **Tours** are computed in `src/lib/sffd/tours.ts` and SQL `tour_works()`,
+  tested against each other.
+- **Gates** are in server layouts: `src/app/(app)/layout.tsx` sends members to
+  `/onboarding`, `/pending`, `/change-password` or `/welcome` as needed, and
+  shows an error screen (never a redirect) when the database can't be reached.
+  `src/proxy.ts` only refreshes the session, bounces signed-out users and
+  handles legacy URLs.
+- **Push:** a database trigger calls `/api/push/flush` through `pg_net` when
+  configured; the app also calls it after actions. The route claims pending
+  notifications (`claim_push_batch`), sends them with `web-push` and removes
+  dead subscriptions (`src/lib/push/server.ts`).
+- **Calendar feed:** `/api/calendar/<token>` serves ICS (`src/lib/ics.ts`) from
+  `calendar_feed()`; the token is the member's secret.
+- **Keepalive:** `/api/keepalive` calls `app_keepalive()`. It is pinged daily by
+  the Vercel cron (`vercel.json`) and the GitHub Action, so the free database
+  isn't paused.
+
+Code map:
+
+```
+src/app/(auth)       login, signup            src/app/(onboard)  onboarding, pending, welcome, change-password
+src/app/(app)        calendar, board, post, trades, alerts, profile, admin/*
+src/app/api          keepalive, push/flush, calendar/[token]  (+ _lib helpers)
+src/lib/api          typed data layer         src/lib/sffd       dates, tours, stations, ranks, shift types
+src/lib/supabase     client/server/admin/session clients      src/lib/push  client (subscribe) + server (send)
+src/components/ui    primitives               src/components     shell, header, navigation, pickers, providers
+supabase/migrations  schema                   tests/unit, tests/db  Vitest suites
+scripts/db           migrate, make-admin, set-app-config       scripts/smoke  live smoke test, UI screenshot tour
+```
+
+## 5. Common tasks
+
+All database scripts read `POSTGRES_URL_NON_POOLING` from `.env.local`. Run
+`vercel env pull .env.local` first. They never print passwords, keys or secret
+config values.
+
+**Apply migrations**
+
+```sh
+npm run db:migrate -- --status    # applied and pending files
+npm run db:migrate -- --dry-run   # what would run
+npm run db:migrate                # apply pending files, one transaction each
+```
+
+A new migration is a new `supabase/migrations/NNNN_name.sql`. New functions get
+no grants by default. Add them to a privileges section and to
+`tests/db/privileges.test.ts`. Keep `src/lib/types/database.ts` and
+`src/lib/api` in step.
+
+**Make an admin**: the first time only. After that, admins use Admin ▸ Members.
+
+```sh
+node scripts/db/make-admin.mjs someone@example.com   # they must have signed up first
+```
+
+**Set database settings** (`private.app_config`), e.g. the push webhook:
+
+```sh
+node scripts/db/set-app-config.mjs --list
+node scripts/db/set-app-config.mjs push_webhook_url=https://sffd-shiftswap.vercel.app/api/push/flush
+node scripts/db/set-app-config.mjs push_webhook_secret=@env:PUSH_WEBHOOK_SECRET   # read from env, not typed
+node scripts/db/set-app-config.mjs --unset push_webhook_url push_webhook_secret
+```
+
+The webhook also needs `create extension if not exists pg_net;` (Supabase
+dashboard ▸ Database ▸ Extensions, or SQL editor). Full steps are in
+`docs/DEPLOY.md`.
+
+**Generate VAPID keys** (only if they don't exist yet; changing them breaks
+every existing push subscription): `npx web-push generate-vapid-keys`.
+
+**Smoke-test the live app** before a release:
+
+- `node scripts/smoke/live-smoke.mjs` creates `e2e-*@example.com` members,
+  runs the trade flows against the real database and deletes everything it made.
+- `node scripts/smoke/ui-tour.mjs` seeds the same kind of throwaway members,
+  signs in as each one in a phone-sized Playwright browser, screenshots every
+  screen into `.tmp-test/shots/`, reports console errors and failed requests,
+  then cleans up. `--base <url>` points it at a preview or local server;
+  `--keep` leaves the data for a manual look.
+
+**Remove a member's account** (they asked to leave): Admin ▸ Members ▸ the
+member ▸ **Remove member** (`docs/ADMIN-GUIDE.md` section 5). It runs
+`admin_remove_member` as the admin, then the `removeMember` server action
+(`src/app/(app)/admin/actions.ts`) swaps the login email for
+`removed+<id>@shiftswap.invalid` and bans the login with the secret key. Never
+delete the auth user in the Supabase dashboard: foreign keys block it for anyone
+who ever traded, and it would skip the clean-up.
+
+## 6. Testing strategy
+
+- **Unit tests** (`tests/unit`, `npm run test:unit`): dates, tours against a
+  fixture for all 31 tours from 2019 to 2035, roster CSV and name matching, ICS output,
+  effective schedule, errors, env, API wrappers, the proxy, and the platform
+  routes (`platform-*.test.ts` for the layout gates, push flush and keepalive;
+  `ics-route-*.test.ts` for the calendar feed). Route tests use the real
+  supabase-js client with a stubbed `fetch`, so they check the exact PostgREST
+  requests. `web-push` is faked.
+- **Database tests** (`tests/db`, `npm run test:db`): every migration runs inside
+  **PGlite** (Postgres 18 in WebAssembly) after `tests/db/supabase-stub.sql`
+  emulates Supabase's roles, `auth` schema and default grants. They exercise the
+  RPC rules and RLS policies with allowed and denied cases (the goal in
+  ARCHITECTURE section 8 is every rule). No Docker and no network. The first run
+  takes a minute while PGlite boots.
+- **CI** (`.github/workflows/ci.yml`) runs lint, typecheck, all tests and a
+  production build with placeholder env on every push to `main` or `release/**`
+  and on every pull request.
+- **Live smoke** (`scripts/smoke/live-smoke.mjs`) against the real project, by hand.
+- **UI tour** (`scripts/smoke/ui-tour.mjs`), by hand: screenshots of every
+  screen plus console errors. It looks at screens but asserts no flows, so there
+  are still no automated browser end-to-end tests (see the backlog).
+
+## 7. Known limitations
+
+- **No email at all.** No confirmation emails, no self-service password reset.
+  Admins reset passwords (temporary password plus a forced change).
+- **Push on iPhone** works only when the app is installed to the home screen
+  (iOS 16.4 or later) and alerts are allowed. A push that fails is not retried.
+  The in-app alert is always there.
+- **Supabase free plan:** the project pauses after about a week without
+  activity (the keepalive prevents this), has small database and bandwidth limits,
+  and has no automatic daily backups. Upgrade to Pro before the department
+  relies on it (`docs/DEPLOY.md`).
+- **Vercel Hobby:** cron jobs run at most once a day.
+- **Calendar subscriptions** refresh when the calendar app decides (Apple about
+  hourly to daily; Google can take a day or more). The feed covers 30 days
+  back to 365 days ahead.
+- **v1 scope:** no overtime, C-Watch, EMS/ambulance shifts, SMS, or native app
+  store builds. Picked-up days can't be re-traded. Shifts can be posted up to 180
+  days out. Trades are same rank only.
+- **TeleStaff is not connected.** Members still enter trades there themselves.
+- **Realtime** events only trigger a refetch; if the websocket drops, pages
+  refresh on focus or navigation.
+
+## 8. Backlog ideas
+
+- Browser end-to-end tests (Playwright) for sign-up, post, request, confirm and cancel.
+- Error monitoring (e.g. Sentry) and an uptime check with SMS alerts.
+- Optional email or SMS alerts and self-service password reset (needs an email provider).
+- Re-trading picked-up shifts; multi-person trade chains.
+- A TeleStaff-ready export or "copy for paperwork" improvements.
+- Overtime and C-Watch boards (out of scope for v1).
+- Admin reports: trades per battalion, members with large balances.
+- A custom domain.
+- Upgrade Supabase to Pro for backups and headroom once usage grows.

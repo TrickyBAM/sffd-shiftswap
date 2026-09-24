@@ -1,0 +1,33 @@
+{
+  "description": "Shared cases for name_key normalisation. Both src/lib/roster/normalize.ts nameKey() and SQL public.name_key(text) must return exactly `key` for each `input`. Rule: lowercase; map áàâäãå→a, éèêë→e, íìîï→i, óòôöõø→o, úùûü→u, ñ→n, ç→c, ý ÿ→y; then drop every character that is not a-z. Letters outside that mapping (ł, ß, ễ, …) are dropped, not transliterated.",
+  "cases": [
+    { "input": "Smith", "key": "smith" },
+    { "input": "O'Brien-Smith", "key": "obriensmith" },
+    { "input": "  Mary  Ann ", "key": "maryann" },
+    { "input": "D'Angelo Jr.", "key": "dangelojr" },
+    { "input": "McDONALD", "key": "mcdonald" },
+    { "input": "José", "key": "jose" },
+    { "input": "JOSÉ", "key": "jose" },
+    { "input": "Nuñez", "key": "nunez" },
+    { "input": "NUÑEZ", "key": "nunez" },
+    { "input": "François", "key": "francois" },
+    { "input": "Çelik", "key": "celik" },
+    { "input": "Müller", "key": "muller" },
+    { "input": "MÜLLER", "key": "muller" },
+    { "input": "Zoë", "key": "zoe" },
+    { "input": "Ångström", "key": "angstrom" },
+    { "input": "Øster", "key": "oster" },
+    { "input": "Ýves Ÿvon", "key": "yvesyvon" },
+    { "input": "áàâäãå éèêë íìîï óòôöõø úùûü ñ ç ý ÿ", "key": "aaaaaaeeeeiiiioooooouuuuncyy" },
+    { "input": "ÁÀÂÄÃÅ ÉÈÊË ÍÌÎÏ ÓÒÔÖÕØ ÚÙÛÜ Ñ Ç Ý", "key": "aaaaaaeeeeiiiioooooouuuuncy" },
+    { "input": "Iñigo Úrdiales", "key": "inigourdiales" },
+    { "input": "José", "key": "jose" },
+    { "input": "Łukasz", "key": "ukasz" },
+    { "input": "Straße", "key": "strae" },
+    { "input": "Nguyễn", "key": "nguyn" },
+    { "input": "Smith3", "key": "smith" },
+    { "input": "123", "key": "" },
+    { "input": "   ", "key": "" },
+    { "input": "", "key": "" }
+  ]
+}
